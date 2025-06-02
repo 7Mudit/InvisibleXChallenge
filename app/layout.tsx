@@ -56,13 +56,9 @@ export default function RootLayout({
               <Toaster
                 position="bottom-right"
                 expand={false}
-                richColors
-                closeButton
                 toastOptions={{
                   style: {
-                    background: "hsl(var(--card))",
                     border: "1px solid hsl(var(--border))",
-                    color: "hsl(var(--card-foreground))",
                   },
                 }}
               />

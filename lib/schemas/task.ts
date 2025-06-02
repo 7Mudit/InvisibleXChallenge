@@ -12,11 +12,7 @@ export const ProfessionalSector = z.enum([
 
 export type ProfessionalSector = z.infer<typeof ProfessionalSector>;
 
-export const TaskStatus = z.enum([
-  "Task Creation",
-  "Rubric Creation",
-  "Completed",
-]);
+export const TaskStatus = z.enum(["Task Creation", "Completed"]);
 
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
@@ -147,7 +143,6 @@ export function toAirtableFormat(
   };
 }
 
-// Simple error formatting
 export function formatValidationErrors(errors: z.ZodError): string[] {
   return errors.errors.map((error) => {
     return error.message;
@@ -182,26 +177,18 @@ export function getStatusDisplayInfo(status: TaskStatus) {
   switch (status) {
     case "Task Creation":
       return {
-        label: "Task Creation",
-        color:
-          "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-        step: 1,
-        description: "Initial task setup",
-      };
-    case "Rubric Creation":
-      return {
-        label: "Rubric Creation",
+        label: "Pending Rubric",
         color:
           "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-        step: 2,
-        description: "Rubric creation and scoring",
+        step: 1,
+        description: "Ready for rubric creation",
       };
     case "Completed":
       return {
         label: "Completed",
         color:
           "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-        step: 3,
+        step: 2,
         description: "Evaluation completed",
       };
     default:
@@ -218,9 +205,7 @@ export function getStatusDisplayInfo(status: TaskStatus) {
 export function calculateTaskProgress(status: TaskStatus): number {
   switch (status) {
     case "Task Creation":
-      return 33;
-    case "Rubric Creation":
-      return 66;
+      return 50;
     case "Completed":
       return 100;
     default:
@@ -231,8 +216,6 @@ export function calculateTaskProgress(status: TaskStatus): number {
 export function getNextStatus(currentStatus: TaskStatus): TaskStatus | null {
   switch (currentStatus) {
     case "Task Creation":
-      return "Rubric Creation";
-    case "Rubric Creation":
       return "Completed";
     case "Completed":
       return null;
@@ -254,8 +237,6 @@ export function canProgressToNextRound(
         task.Sources &&
         task.OpenSourceConfirmed
       );
-    case "Rubric Creation":
-      return !!(task.Rubric && task.AlignmentPercentage !== undefined);
     case "Completed":
     default:
       return false;
@@ -272,20 +253,14 @@ export function getWorkflowSteps(): Array<{
     {
       status: "Task Creation",
       label: "Task Setup",
-      description: "Create Prompt and AI model responses",
+      description: "Create prompt and gather AI responses",
       estimatedTime: "30-45 minutes",
     },
     {
-      status: "Rubric Creation",
-      label: "Evaluation",
-      description: "Create rubric and assess AI response alignment",
-      estimatedTime: "20-25 minutes",
-    },
-    {
       status: "Completed",
-      label: "Complete",
-      description: "Review results and export findings",
-      estimatedTime: "Instant",
+      label: "Evaluation Complete",
+      description: "Create rubric and calculate alignment",
+      estimatedTime: "20-25 minutes",
     },
   ];
 }
