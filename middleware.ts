@@ -1,6 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { canAccessAdminRoutes, UserRole } from "@/validators/users.schema";
+import { canAccessAdminRoutes, UserRole } from "@/lib/schemas/users.schema";
 
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
@@ -46,6 +46,13 @@ export default clerkMiddleware(async (auth, req) => {
     const redirectURL = new URL("/unauthorized", req.url);
     redirectURL.searchParams.set("reason", "invalid_email");
     return NextResponse.redirect(redirectURL);
+  }
+
+  if (!role) {
+    console.warn("User has no role assigned:", { url, email, userId });
+    const unauthorizedUrl = new URL("/unauthorized", req.url);
+    unauthorizedUrl.searchParams.set("reason", "role_assignment_pending");
+    return NextResponse.redirect(unauthorizedUrl);
   }
 
   // admin route protection
