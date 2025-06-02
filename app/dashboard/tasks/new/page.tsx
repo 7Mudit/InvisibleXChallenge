@@ -3,6 +3,9 @@
 import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { toast } from "sonner";
 
 import {
   Card,
@@ -32,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Plus,
   FileText,
@@ -41,77 +45,92 @@ import {
   CheckCircle,
   Bot,
   ExternalLink,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
-import { CreateTaskSchema, CreateTaskInput } from "@/lib/schemas/task";
-import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+
+import {
+  CreateTaskSchema,
+  CreateTaskInput,
+  getWorkflowSteps,
+} from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
+import { api } from "@/lib/trpc/client";
 
 export default function NewTaskPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const router = useRouter();
   const { user } = useUser();
+
+  const workflowSteps = getWorkflowSteps();
+
+  const createTaskMutation = api.tasks.create.useMutation({
+    onSuccess: () => {
+      toast.success("Task created successfully!", {
+        description: "You can now view it in your submitted tasks.",
+      });
+      setIsSubmitting(false);
+      router.push("/dashboard/tasks/submitted");
+    },
+    onError: (error) => {
+      setIsSubmitting(false);
+      setSubmitError(
+        error.message || "An error occurred while creating the task."
+      );
+      toast.error("Failed to create task", {
+        description: error.message,
+      });
+    },
+  });
 
   const form = useForm<CreateTaskInput>({
     resolver: zodResolver(CreateTaskSchema),
     defaultValues: {
-      taskDescription: "",
-      professionalSector: undefined,
-      sources: "",
-      openSourceConfirmed: false,
-      licenseNotes: "",
-      gptResponse: "",
-      geminiResponse: "",
+      Prompt: "",
+      ProfessionalSector: undefined,
+      Sources: "",
+      OpenSourceConfirmed: false,
+      LicenseNotes: "",
+      GPTResponse: "",
+      GeminiResponse: "",
     },
   });
 
   const onSubmit = async (data: CreateTaskInput) => {
     setIsSubmitting(true);
+    setSubmitError(null);
 
     try {
-      // Create task payload for Airtable
-      const taskPayload = {
-        ...data,
-        trainerEmail: user?.primaryEmailAddress?.emailAddress,
-        openSourceConfirmed: data.openSourceConfirmed.toString(), // Convert boolean to string for Airtable
-        status: "Task Creation", // Initial status
-      };
-
-      console.log("Creating task:", taskPayload);
-
-      // TODO: Implement API call to create task in Airtable
-      // const response = await fetch('/api/tasks', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(taskPayload)
-      // });
-
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Redirect to submitted tasks
-      // router.push("/tasks/submitted");
-    } catch (error) {
-      console.error("Error creating task:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+      await createTaskMutation.mutateAsync(data);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (error) {}
   };
 
   const selectedSector = professionalSectors.find(
-    (sector) => sector.value === form.watch("professionalSector")
+    (sector) => sector.value === form.watch("ProfessionalSector")
   );
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">
-          Create New Task
-        </h1>
-        <p className="text-muted-foreground">
-          Create a new evaluation task with AI model responses
-        </p>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            Create New Task
+          </h1>
+          <p className="text-muted-foreground">
+            Create a new evaluation task with AI model responses.
+          </p>
+        </div>
+
+        {submitError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Submission Error</AlertTitle>
+            <AlertDescription>{submitError}</AlertDescription>
+          </Alert>
+        )}
       </div>
 
       <Form {...form}>
@@ -124,28 +143,29 @@ export default function NewTaskPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <FileText className="h-5 w-5" />
-                    <span>Task Description</span>
+                    <span>Prompt</span>
                   </CardTitle>
                   <CardDescription>
-                    Provide a detailed description of the evaluation task
+                    Provide a detailed description of the task.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <FormField
                     control={form.control}
-                    name="taskDescription"
+                    name="Prompt"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Description *</FormLabel>
+                        <FormLabel>Prompt *</FormLabel>
                         <FormControl>
                           <Textarea
-                            placeholder="Describe the task that needs to be evaluated. Be specific about requirements, expected outputs, and evaluation criteria..."
+                            placeholder="Describe the task that needs to be evaluated. Be specific about requirements, expected outputs..."
                             className="min-h-[120px] bg-background/50"
                             {...field}
                           />
                         </FormControl>
                         <FormDescription>
-                          Minimum 10 characters. Be as detailed as possible.
+                          Provide a clear, detailed description of what you want
+                          the AI to accomplish.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -159,13 +179,13 @@ export default function NewTaskPage() {
                 <CardHeader>
                   <CardTitle>Professional Sector</CardTitle>
                   <CardDescription>
-                    Select the sector that best matches your task
+                    Select the sector that best matches your task.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <FormField
                     control={form.control}
-                    name="professionalSector"
+                    name="ProfessionalSector"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Sector *</FormLabel>
@@ -195,6 +215,7 @@ export default function NewTaskPage() {
                         {selectedSector && (
                           <div className="mt-2 p-3 bg-muted/30 rounded-lg border border-border/30">
                             <p className="text-sm text-muted-foreground">
+                              <strong>{selectedSector.label}:</strong>{" "}
                               {selectedSector.description}
                             </p>
                           </div>
@@ -214,25 +235,26 @@ export default function NewTaskPage() {
                     <span>AI Model Responses</span>
                   </CardTitle>
                   <CardDescription>
-                    Provide responses from both GPT and Gemini models
+                    Provide the complete responses from both GPT and Gemini
+                    models.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
                     control={form.control}
-                    name="gptResponse"
+                    name="GPTResponse"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>GPT Response *</FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder="Paste the complete response from GPT model here..."
-                            className="min-h-[120px] bg-background/50"
+                            className="min-h-[120px] bg-background/50 font-mono text-sm"
                             {...field}
                           />
                         </FormControl>
                         <FormDescription>
-                          Include the full response from GPT for evaluation
+                          Include the full response exactly as provided by GPT.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -241,19 +263,20 @@ export default function NewTaskPage() {
 
                   <FormField
                     control={form.control}
-                    name="geminiResponse"
+                    name="GeminiResponse"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Gemini Response *</FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder="Paste the complete response from Gemini model here..."
-                            className="min-h-[120px] bg-background/50"
+                            className="min-h-[120px] bg-background/50 font-mono text-sm"
                             {...field}
                           />
                         </FormControl>
                         <FormDescription>
-                          Include the full response from Gemini for evaluation
+                          Include the full response exactly as provided by
+                          Gemini.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -270,13 +293,14 @@ export default function NewTaskPage() {
                     <span>Sources & Licensing</span>
                   </CardTitle>
                   <CardDescription>
-                    Upload sources to Google Drive and confirm licensing
+                    Upload source materials to Google Drive and confirm
+                    licensing.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
                     control={form.control}
-                    name="sources"
+                    name="Sources"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Google Drive URL *</FormLabel>
@@ -303,8 +327,8 @@ export default function NewTaskPage() {
                           </div>
                         </FormControl>
                         <FormDescription>
-                          Upload all your sources (photos, docs, datasets) to
-                          Google Drive and share the folder URL
+                          Upload all source materials to Google Drive and share
+                          the folder URL.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -313,7 +337,7 @@ export default function NewTaskPage() {
 
                   <FormField
                     control={form.control}
-                    name="openSourceConfirmed"
+                    name="OpenSourceConfirmed"
                     render={({ field }) => (
                       <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 bg-green-50/50 dark:bg-green-950/20">
                         <FormControl>
@@ -326,8 +350,7 @@ export default function NewTaskPage() {
                           <FormLabel>Open Source Confirmation *</FormLabel>
                           <FormDescription>
                             I confirm that all sources used are properly
-                            licensed for commercial use and are open source
-                            compliant.
+                            licensed for commercial use.
                           </FormDescription>
                         </div>
                       </FormItem>
@@ -336,19 +359,19 @@ export default function NewTaskPage() {
 
                   <FormField
                     control={form.control}
-                    name="licenseNotes"
+                    name="LicenseNotes"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>License Notes (Optional)</FormLabel>
                         <FormControl>
                           <Textarea
-                            placeholder="Additional notes about licensing, restrictions, or usage rights..."
+                            placeholder="Add any additional notes about licensing or restrictions..."
                             className="bg-background/50"
                             {...field}
                           />
                         </FormControl>
                         <FormDescription>
-                          Any additional licensing information or restrictions
+                          Document any specific licensing requirements.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -360,97 +383,58 @@ export default function NewTaskPage() {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Evaluation Flow */}
+              {/* Evaluation Process */}
               <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2 text-lg">
                     <Shield className="h-5 w-5" />
-                    <span>Evaluation Flow</span>
+                    <span>Evaluation Process</span>
                   </CardTitle>
                   <CardDescription>
                     Your task will progress through these stages
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                        <span className="text-xs text-primary-foreground font-medium">
-                          1
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">Task Creation</p>
-                        <p className="text-xs text-muted-foreground">
-                          Current stage
-                        </p>
-                      </div>
-                      <Badge variant="default" className="text-xs">
-                        Active
-                      </Badge>
-                    </div>
+                  <div className="space-y-4">
+                    {workflowSteps.map((step, index) => {
+                      const isActive = index === 0;
 
-                    <div className="flex items-center space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                        <span className="text-xs text-muted-foreground font-medium">
-                          2
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-muted-foreground">
-                          Round 1
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Rubric creation & scoring
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                        <span className="text-xs text-muted-foreground font-medium">
-                          3
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-muted-foreground">
-                          Round 2
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Enhanced evaluation
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                        <span className="text-xs text-muted-foreground font-medium">
-                          4
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-muted-foreground">
-                          Round 3
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Final scoring
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                        <CheckCircle className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-muted-foreground">
-                          Completed
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Evaluation complete
-                        </p>
-                      </div>
-                    </div>
+                      return (
+                        <div
+                          key={step.status}
+                          className="flex items-start space-x-3"
+                        >
+                          <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                              isActive
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {index + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={`text-sm font-medium ${
+                                isActive
+                                  ? "text-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {step.label}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {step.description}
+                            </p>
+                            {isActive && (
+                              <Badge variant="default" className="text-xs mt-2">
+                                Current Step
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -467,11 +451,7 @@ export default function NewTaskPage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex items-start space-x-2">
                       <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                      <span>Upload all sources to Google Drive</span>
-                    </div>
-                    <div className="flex items-start space-x-2">
-                      <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                      <span>Confirm open source licensing</span>
+                      <span>Provide detailed prompt.</span>
                     </div>
                     <div className="flex items-start space-x-2">
                       <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
@@ -479,11 +459,40 @@ export default function NewTaskPage() {
                     </div>
                     <div className="flex items-start space-x-2">
                       <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                      <span>Provide detailed task descriptions</span>
+                      <span>Upload sources to Google Drive</span>
+                    </div>
+                    <div className="flex items-start space-x-2">
+                      <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                      <span>Confirm open source licensing</span>
                     </div>
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Current User Info */}
+              {user && (
+                <Card className="bg-muted/30 border-border/30">
+                  <CardHeader>
+                    <CardTitle className="text-sm">
+                      Trainer Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="text-xs">
+                      <span className="text-muted-foreground">Email: </span>
+                      <span className="font-mono">
+                        {user.primaryEmailAddress?.emailAddress}
+                      </span>
+                    </div>
+                    <div className="text-xs">
+                      <span className="text-muted-foreground">Name: </span>
+                      <span>
+                        {user.firstName} {user.lastName}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
 
@@ -505,7 +514,7 @@ export default function NewTaskPage() {
             >
               {isSubmitting ? (
                 <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Creating...</span>
                 </div>
               ) : (

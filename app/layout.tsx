@@ -3,6 +3,8 @@ import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import { ClerkProvider } from "@clerk/nextjs";
+import { TRPCProvider } from "@/lib/trpc/provider";
+import { Toaster } from "sonner";
 
 const ibmPlexSans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -29,7 +31,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider afterSignOutUrl="/sign-in">
+    <ClerkProvider
+      afterSignOutUrl="/sign-in"
+      appearance={{
+        elements: {
+          formButtonPrimary:
+            "bg-primary hover:bg-primary/90 text-primary-foreground",
+          footerActionLink: "text-primary hover:text-primary/80",
+        },
+      }}
+    >
       <html lang="en" suppressHydrationWarning>
         <body
           className={`${ibmPlexMono.variable} ${ibmPlexSans.variable} ${ibmPlexSans.className}  antialiased`}
@@ -40,7 +51,22 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            {children}
+            <TRPCProvider>
+              {children}{" "}
+              <Toaster
+                position="bottom-right"
+                expand={false}
+                richColors
+                closeButton
+                toastOptions={{
+                  style: {
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    color: "hsl(var(--card-foreground))",
+                  },
+                }}
+              />
+            </TRPCProvider>
           </ThemeProvider>
         </body>
       </html>

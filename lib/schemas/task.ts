@@ -1,6 +1,6 @@
+import { FieldSet } from "airtable";
 import { z } from "zod";
 
-// Professional sectors enum
 export const ProfessionalSector = z.enum([
   "Data-Science & Analysis",
   "Web development",
@@ -12,89 +12,172 @@ export const ProfessionalSector = z.enum([
 
 export type ProfessionalSector = z.infer<typeof ProfessionalSector>;
 
-// Single status enum for tracking everything
 export const TaskStatus = z.enum([
   "Task Creation",
-  "Round 1",
-  "Round 2",
-  "Round 3",
+  "Rubric Creation",
   "Completed",
 ]);
 
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
 export const CreateTaskSchema = z.object({
-  Prompt: z.string().min(10, "Task description must be at least 10 characters"),
+  Prompt: z
+    .string()
+    .min(50, "Task description must be at least 50 characters")
+    .refine(
+      (val) => val.trim().length >= 50,
+      "Task description cannot be just whitespace"
+    ),
+
   ProfessionalSector: ProfessionalSector,
-  TrainerEmail: z.string().email(),
+
   Sources: z
     .string()
     .url("Please provide a valid Google Drive URL")
-    .min(1, "Google Drive URL is required"),
-  OpenSourceConfirmed: z.boolean(),
-  LicenseNotes: z.string().optional(),
-  GPTResponse: z.string().min(1, "GPT response is required"),
-  GeminiResponse: z.string().min(1, "Gemini response is required"),
+    .refine(
+      (url) => url.includes("drive.google.com"),
+      "Must be a Google Drive URL"
+    ),
+
+  OpenSourceConfirmed: z
+    .boolean()
+    .refine((val) => val === true, "You must confirm open source licensing"),
+
+  LicenseNotes: z
+    .string()
+    .max(1000, "License notes must be less than 1000 characters")
+    .optional(),
+
+  GPTResponse: z
+    .string()
+    .min(50, "GPT response must be at least 50 characters")
+    .refine(
+      (val) => val.trim().length >= 50,
+      "GPT response cannot be just whitespace"
+    ),
+
+  GeminiResponse: z
+    .string()
+    .min(50, "Gemini response must be at least 50 characters")
+    .refine(
+      (val) => val.trim().length >= 50,
+      "Gemini response cannot be just whitespace"
+    ),
 });
 
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 
-export const TaskSchema = z.object({
-  TaskID: z.string(),
-  Prompt: z.string(),
-  ProfessionalSector: ProfessionalSector,
-  TrainerEmail: z.string().email(),
-  Sources: z.string(),
-  OpenSourceConfirmed: z.string(),
-  LicenseNotes: z.string().optional(),
-  GPTResponse: z.string(),
-  GeminiResponse: z.string(),
-
-  // Round 1 fields
-  Round1Rubric: z.string().optional(),
-  Round1HumanScores: z.string().optional(),
-  Round1AIScores: z.string().optional(),
-  Round1AlignmentPercentage: z.number().optional(),
-  Round1MisalignedItems: z.string().optional(),
-
-  // Round 2 fields
-  Round2AssignedTo: z.string().optional(),
-  Round2RubricEnhanced: z.string().optional(),
-  Round2Rubric: z.string().optional(),
-  Round2HumanScores: z.string().optional(),
-  Round2AIScores: z.string().optional(),
-  Round2AlignmentPercentage: z.number().optional(),
-  Round2MisalignedItems: z.string().optional(),
-
-  // Round 3 fields
-  Round3AssignedTo: z.string().optional(),
-  Round3RubricEnhanced: z.string().optional(),
-  Round3Rubric: z.string().optional(),
-  Round3HumanScores: z.string().optional(),
-  Round3AIScores: z.string().optional(),
-  Round3AlignmentPercentage: z.number().optional(),
-  Round3MisalignedItems: z.string().optional(),
-
-  // Metadata
-  Status: TaskStatus,
-  Comments: z.string().optional(),
+export const ServerTaskSchema = CreateTaskSchema.extend({
+  TrainerEmail: z
+    .string()
+    .email("Must be a valid email address")
+    .refine(
+      (email) => email.endsWith("@invisible.email"),
+      "Must be an @invisible.email account"
+    ),
 });
 
-export type Task = z.infer<typeof TaskSchema>;
+export type ServerTaskInput = z.infer<typeof ServerTaskSchema>;
 
-// Task summary for listings in submitted tasks
+export interface AirtableTaskRecord extends FieldSet {
+  TaskID: string;
+  Prompt: string;
+  ProfessionalSector: ProfessionalSector;
+  TrainerEmail: string;
+  Sources: string;
+  OpenSourceConfirmed: string;
+  LicenseNotes?: string;
+  GPTResponse: string;
+  GeminiResponse: string;
+  Status: TaskStatus;
+
+  // Rubric Creation fields
+  Rubric?: string;
+  HumanScores?: string;
+  AIScores?: string;
+  AlignmentPercentage?: number;
+  MisalignedItems?: string;
+  Comments?: string;
+  Created?: string;
+  LastModified?: string;
+}
+
+export interface Task extends AirtableTaskRecord {
+  id: string;
+}
+
 export const TaskSummarySchema = z.object({
+  id: z.string(),
   TaskID: z.string(),
   Prompt: z.string(),
   ProfessionalSector: ProfessionalSector,
   Status: TaskStatus,
   Progress: z.number().min(0).max(100),
   TrainerEmail: z.string().email(),
+  Created: z.string().optional(),
 });
 
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
 
-// Helper functions
+export function addServerFields(
+  frontendData: CreateTaskInput,
+  trainerEmail: string
+): ServerTaskInput {
+  return {
+    ...frontendData,
+    TrainerEmail: trainerEmail,
+  };
+}
+
+export function toAirtableFormat(
+  serverData: ServerTaskInput,
+  taskID: string
+): Omit<AirtableTaskRecord, keyof FieldSet> {
+  return {
+    TaskID: taskID,
+    Prompt: serverData.Prompt,
+    ProfessionalSector: serverData.ProfessionalSector,
+    TrainerEmail: serverData.TrainerEmail,
+    Sources: serverData.Sources,
+    OpenSourceConfirmed: serverData.OpenSourceConfirmed.toString(),
+    LicenseNotes: serverData.LicenseNotes || "",
+    GPTResponse: serverData.GPTResponse,
+    GeminiResponse: serverData.GeminiResponse,
+    Status: "Task Creation" as TaskStatus,
+  };
+}
+
+// Simple error formatting
+export function formatValidationErrors(errors: z.ZodError): string[] {
+  return errors.errors.map((error) => {
+    return error.message;
+  });
+}
+
+export function getDetailedValidationError(errors: z.ZodError): {
+  summary: string;
+  details: string[];
+  fieldErrors: Record<string, string>;
+} {
+  const details = formatValidationErrors(errors);
+  const fieldErrors: Record<string, string> = {};
+
+  errors.errors.forEach((error) => {
+    const fieldName = error.path[0] as string;
+    if (fieldName && !fieldErrors[fieldName]) {
+      fieldErrors[fieldName] = error.message;
+    }
+  });
+
+  return {
+    summary: `Please fix ${errors.errors.length} validation ${
+      errors.errors.length === 1 ? "error" : "errors"
+    }`,
+    details,
+    fieldErrors,
+  };
+}
+
 export function getStatusDisplayInfo(status: TaskStatus) {
   switch (status) {
     case "Task Creation":
@@ -105,37 +188,21 @@ export function getStatusDisplayInfo(status: TaskStatus) {
         step: 1,
         description: "Initial task setup",
       };
-    case "Round 1":
+    case "Rubric Creation":
       return {
-        label: "Round 1",
+        label: "Rubric Creation",
         color:
           "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
         step: 2,
-        description: "First evaluation round",
-      };
-    case "Round 2":
-      return {
-        label: "Round 2",
-        color:
-          "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
-        step: 3,
-        description: "Second evaluation round",
-      };
-    case "Round 3":
-      return {
-        label: "Round 3",
-        color:
-          "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-        step: 4,
-        description: "Final evaluation round",
+        description: "Rubric creation and scoring",
       };
     case "Completed":
       return {
         label: "Completed",
         color:
           "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-        step: 5,
-        description: "All rounds completed",
+        step: 3,
+        description: "Evaluation completed",
       };
     default:
       return {
@@ -151,13 +218,9 @@ export function getStatusDisplayInfo(status: TaskStatus) {
 export function calculateTaskProgress(status: TaskStatus): number {
   switch (status) {
     case "Task Creation":
-      return 20;
-    case "Round 1":
-      return 40;
-    case "Round 2":
-      return 60;
-    case "Round 3":
-      return 80;
+      return 33;
+    case "Rubric Creation":
+      return 66;
     case "Completed":
       return 100;
     default:
@@ -168,12 +231,8 @@ export function calculateTaskProgress(status: TaskStatus): number {
 export function getNextStatus(currentStatus: TaskStatus): TaskStatus | null {
   switch (currentStatus) {
     case "Task Creation":
-      return "Round 1";
-    case "Round 1":
-      return "Round 2";
-    case "Round 2":
-      return "Round 3";
-    case "Round 3":
+      return "Rubric Creation";
+    case "Rubric Creation":
       return "Completed";
     case "Completed":
       return null;
@@ -182,30 +241,51 @@ export function getNextStatus(currentStatus: TaskStatus): TaskStatus | null {
   }
 }
 
-export function canProgressToNextRound(task: Partial<Task>): boolean {
+export function canProgressToNextRound(
+  task: Partial<AirtableTaskRecord>
+): boolean {
   switch (task.Status) {
     case "Task Creation":
       return !!(
         task.Prompt &&
         task.ProfessionalSector &&
         task.GPTResponse &&
-        task.GeminiResponse
+        task.GeminiResponse &&
+        task.Sources &&
+        task.OpenSourceConfirmed
       );
-    case "Round 1":
-      return !!(
-        task.Round1Rubric && task.Round1AlignmentPercentage !== undefined
-      );
-    case "Round 2":
-      return !!(
-        task.Round2Rubric && task.Round2AlignmentPercentage !== undefined
-      );
-    case "Round 3":
-      return !!(
-        task.Round3Rubric && task.Round3AlignmentPercentage !== undefined
-      );
+    case "Rubric Creation":
+      return !!(task.Rubric && task.AlignmentPercentage !== undefined);
     case "Completed":
-      return false;
     default:
       return false;
   }
+}
+
+export function getWorkflowSteps(): Array<{
+  status: TaskStatus;
+  label: string;
+  description: string;
+  estimatedTime: string;
+}> {
+  return [
+    {
+      status: "Task Creation",
+      label: "Task Setup",
+      description: "Create Prompt and AI model responses",
+      estimatedTime: "30-45 minutes",
+    },
+    {
+      status: "Rubric Creation",
+      label: "Evaluation",
+      description: "Create rubric and assess AI response alignment",
+      estimatedTime: "20-25 minutes",
+    },
+    {
+      status: "Completed",
+      label: "Complete",
+      description: "Review results and export findings",
+      estimatedTime: "Instant",
+    },
+  ];
 }
