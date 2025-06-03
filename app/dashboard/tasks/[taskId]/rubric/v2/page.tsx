@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { debounce } from "lodash";
 
 import {
   Card,
@@ -55,6 +56,7 @@ export default function RubricV2Page() {
   const taskId = params.taskId as string;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const [rubricValidation, setRubricValidation] = useState<{
     isValid: boolean;
     errors: string[];
@@ -95,6 +97,69 @@ export default function RubricV2Page() {
     }
   }, [task, form]);
 
+  // Memoized validation function with caching
+  const validateRubricMemoized = useMemo(() => {
+    const cache = new Map<
+      string,
+      { isValid: boolean; errors: string[]; rubricCount: number }
+    >();
+
+    return (value: string) => {
+      // Check cache first
+      if (cache.has(value)) {
+        return cache.get(value)!;
+      }
+
+      // Validate and cache result
+      const result = validateRubricJSON(value);
+      cache.set(value, result);
+
+      // Limit cache size to prevent memory leaks
+      if (cache.size > 50) {
+        const firstKey = cache.keys().next().value;
+        if (firstKey) cache.delete(firstKey);
+      }
+
+      return result;
+    };
+  }, []);
+
+  // Debounced validation function
+  const debouncedValidation = useMemo(
+    () =>
+      debounce((value: string) => {
+        setIsValidating(true);
+
+        if (!value || value.trim().length === 0) {
+          setRubricValidation({ isValid: false, errors: [], rubricCount: 0 });
+          setIsValidating(false);
+          return;
+        }
+
+        try {
+          const validation = validateRubricMemoized(value);
+          setRubricValidation(validation);
+        } catch (error) {
+          console.error("Validation error:", error);
+          setRubricValidation({
+            isValid: false,
+            errors: ["Validation failed"],
+            rubricCount: 0,
+          });
+        } finally {
+          setIsValidating(false);
+        }
+      }, 500), // 500ms delay
+    [validateRubricMemoized]
+  );
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedValidation.cancel();
+    };
+  }, [debouncedValidation]);
+
   // Mutation for updating V2 rubric
   const updateRubricV2Mutation = api.tasks.updateRubricV2.useMutation({
     onSuccess: (data) => {
@@ -124,16 +189,18 @@ export default function RubricV2Page() {
     }
   };
 
-  // Validate rubric on change
+  // Handle rubric change with debouncing
   const handleRubricChange = (value: string) => {
+    // For empty values, validate immediately for better UX
     if (!value || value.trim().length === 0) {
       setRubricValidation({ isValid: false, errors: [], rubricCount: 0 });
+      setIsValidating(false);
       return false;
     }
 
-    const validation = validateRubricJSON(value);
-    setRubricValidation(validation);
-    return validation.isValid;
+    // Use debounced validation for non-empty values
+    debouncedValidation(value);
+    return true; // Return optimistic result
   };
 
   // Form submission
@@ -495,26 +562,32 @@ export default function RubricV2Page() {
                   {form.watch("rubricV2") && (
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center space-x-2">
-                        {rubricValidation.isValid ? (
+                        {isValidating ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : rubricValidation.isValid ? (
                           <CheckCircle className="h-5 w-5 text-green-600" />
                         ) : (
                           <AlertCircle className="h-5 w-5 text-red-600" />
                         )}
                         <span
                           className={`text-sm font-medium ${
-                            rubricValidation.isValid
+                            isValidating
+                              ? "text-muted-foreground"
+                              : rubricValidation.isValid
                               ? "text-green-600"
                               : "text-red-600"
                           }`}
                         >
-                          {rubricValidation.isValid
+                          {isValidating
+                            ? "Validating..."
+                            : rubricValidation.isValid
                             ? `Valid V2 rubric with ${rubricValidation.rubricCount} items`
                             : "Invalid rubric format"}
                         </span>
                       </div>
 
                       {/* Count comparison */}
-                      {rubricValidation.isValid && (
+                      {!isValidating && rubricValidation.isValid && (
                         <div className="flex items-center space-x-4 text-xs text-muted-foreground">
                           <span>V1: {v1RubricItems.length} items</span>
                           <span>→</span>
@@ -533,7 +606,8 @@ export default function RubricV2Page() {
                         </div>
                       )}
 
-                      {!rubricValidation.isValid &&
+                      {!isValidating &&
+                        !rubricValidation.isValid &&
                         rubricValidation.errors.length > 0 && (
                           <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md p-3">
                             <ul className="text-sm text-red-600 space-y-1">
@@ -555,11 +629,11 @@ export default function RubricV2Page() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.back()}
+              onClick={() => router.push(`/dashboard/tasks/${taskId}`)}
               disabled={isSubmitting}
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Task
+              Back
             </Button>
 
             <Button
