@@ -276,7 +276,7 @@ export default function TaskDetailsPage() {
         return (
           <Button variant="outline" {...buttonProps}>
             <Edit className="h-4 w-4 mr-2" />
-            Edit (Not supported)
+            Edit
           </Button>
         );
       case "current":

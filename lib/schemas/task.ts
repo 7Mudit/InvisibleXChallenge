@@ -139,16 +139,44 @@ export const TaskSummarySchema = z.object({
 
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
 
-// New validation schemas for rubric steps
+function hasRubricDuplicates(jsonString: string): boolean {
+  const rubricKeyRegex = /"(rubric_\d+)"\s*:/g;
+  const foundKeys: string[] = [];
+  let match;
+
+  while ((match = rubricKeyRegex.exec(jsonString)) !== null) {
+    const key = match[1];
+    if (foundKeys.includes(key)) {
+      return true;
+    }
+    foundKeys.push(key);
+  }
+
+  return false;
+}
 
 // Rubric JSON validation schema
 export const RubricJSONSchema = z.string().refine(
   (jsonString) => {
     try {
+      // Check for empty string
+      if (!jsonString || jsonString.trim().length === 0) {
+        return false;
+      }
+
+      // Check for duplicate keys BEFORE parsing
+      if (hasRubricDuplicates(jsonString)) {
+        return false;
+      }
+
       const rubric = JSON.parse(jsonString);
 
       // Check if it's an object
-      if (typeof rubric !== "object" || Array.isArray(rubric)) {
+      if (
+        typeof rubric !== "object" ||
+        Array.isArray(rubric) ||
+        rubric === null
+      ) {
         return false;
       }
 
@@ -159,6 +187,15 @@ export const RubricJSONSchema = z.string().refine(
 
       // Check minimum count (15) and maximum count (50)
       if (rubricKeys.length < 15 || rubricKeys.length > 50) {
+        return false;
+      }
+
+      // Check for non-rubric keys
+      const nonRubricKeys = Object.keys(rubric).filter(
+        (key) => !key.startsWith("rubric_") || !/^rubric_\d+$/.test(key)
+      );
+
+      if (nonRubricKeys.length > 0) {
         return false;
       }
 
@@ -173,7 +210,7 @@ export const RubricJSONSchema = z.string().refine(
   },
   {
     message:
-      "Must be valid JSON with 15-50 rubric items (rubric_1, rubric_2, etc.) each with at least 10 characters",
+      "Must be valid JSON with 15-50 unique rubric items (rubric_1, rubric_2, etc.) each with at least 10 characters. No duplicate keys allowed.",
   }
 );
 
@@ -529,22 +566,52 @@ export function calculateAlignment(
 }
 
 // Validation helpers
+// Add this to lib/schemas/task.ts - replace the existing validateRubricJSON function
+
 export function validateRubricJSON(jsonString: string): {
   isValid: boolean;
   errors: string[];
   rubricCount: number;
 } {
+  // Early return for empty string
+  if (!jsonString || jsonString.trim().length === 0) {
+    return {
+      isValid: false,
+      errors: ["JSON string cannot be empty"],
+      rubricCount: 0,
+    };
+  }
+
   try {
-    const rubric = JSON.parse(jsonString);
+    // Clean the JSON string - remove any trailing/leading whitespace and ensure it's properly formatted
+    const cleanedJsonString = jsonString.trim();
+
+    // Check for duplicate keys BEFORE parsing
+    const duplicateCheck = checkForDuplicateRubricKeys(cleanedJsonString);
+
+    const rubric = JSON.parse(cleanedJsonString);
     const errors: string[] = [];
 
+    // Add duplicate key errors first
+    if (duplicateCheck.hasDuplicates) {
+      errors.push(
+        `Duplicate rubric keys found: ${duplicateCheck.duplicates.join(
+          ", "
+        )}. Each rubric key should be unique.`
+      );
+    }
+
     // Check if it's an object
-    if (typeof rubric !== "object" || Array.isArray(rubric)) {
+    if (
+      typeof rubric !== "object" ||
+      Array.isArray(rubric) ||
+      rubric === null
+    ) {
       errors.push("Rubric must be a JSON object");
       return { isValid: false, errors, rubricCount: 0 };
     }
 
-    // Get rubric keys
+    // Get rubric keys and validate pattern
     const rubricKeys = Object.keys(rubric).filter(
       (key) => key.startsWith("rubric_") && /^rubric_\d+$/.test(key)
     );
@@ -566,10 +633,45 @@ export function validateRubricJSON(jsonString: string): {
     // Validate each rubric item
     rubricKeys.forEach((key) => {
       const value = rubric[key];
-      if (typeof value !== "string" || value.trim().length < 10) {
-        errors.push(`${key}: Must be a string with at least 10 characters`);
+      if (typeof value !== "string") {
+        errors.push(`${key}: Must be a string`);
+      } else if (value.trim().length < 10) {
+        errors.push(`${key}: Must be at least 10 characters long`);
       }
     });
+
+    // Check for non-rubric keys
+    const nonRubricKeys = Object.keys(rubric).filter(
+      (key) => !key.startsWith("rubric_") || !/^rubric_\d+$/.test(key)
+    );
+
+    if (nonRubricKeys.length > 0) {
+      errors.push(
+        `Invalid keys found: ${nonRubricKeys.join(
+          ", "
+        )}. Only rubric_1, rubric_2, etc. are allowed`
+      );
+    }
+
+    // Check for sequential numbering
+    const rubricNumbers = rubricKeys
+      .map((key) => parseInt(key.replace("rubric_", "")))
+      .sort((a, b) => a - b);
+
+    if (rubricNumbers.length > 0) {
+      const expectedSequence = Array.from(
+        { length: rubricNumbers.length },
+        (_, i) => i + 1
+      );
+
+      const isSequential = rubricNumbers.every(
+        (num, index) => num === expectedSequence[index]
+      );
+
+      if (!isSequential) {
+        console.warn("Rubric numbering is not sequential:", rubricNumbers);
+      }
+    }
 
     return {
       isValid: errors.length === 0,
@@ -577,13 +679,55 @@ export function validateRubricJSON(jsonString: string): {
       rubricCount: rubricKeys.length,
     };
   } catch (error) {
-    console.error("Error validating rubric JSON :", error);
+    console.error("JSON parsing error:", error);
+
+    let errorMessage = "Invalid JSON format";
+
+    if (error instanceof SyntaxError) {
+      if (error.message.includes("Unexpected end")) {
+        errorMessage =
+          "JSON appears incomplete - check for missing closing braces or quotes";
+      } else if (error.message.includes("Unexpected token")) {
+        errorMessage = "JSON contains invalid characters or formatting";
+      } else {
+        errorMessage = `JSON syntax error: ${error.message}`;
+      }
+    }
+
     return {
       isValid: false,
-      errors: ["Invalid JSON format"],
+      errors: [errorMessage],
       rubricCount: 0,
     };
   }
+}
+
+// Helper function to detect duplicate rubric keys in the raw JSON string
+function checkForDuplicateRubricKeys(jsonString: string): {
+  hasDuplicates: boolean;
+  duplicates: string[];
+} {
+  // Use regex to find all rubric_X patterns in the string
+  const rubricKeyRegex = /"(rubric_\d+)"\s*:/g;
+  const foundKeys: string[] = [];
+  const duplicates: string[] = [];
+  let match;
+
+  while ((match = rubricKeyRegex.exec(jsonString)) !== null) {
+    const key = match[1];
+    if (foundKeys.includes(key)) {
+      if (!duplicates.includes(key)) {
+        duplicates.push(key);
+      }
+    } else {
+      foundKeys.push(key);
+    }
+  }
+
+  return {
+    hasDuplicates: duplicates.length > 0,
+    duplicates,
+  };
 }
 
 export function validateEvaluationScores(
