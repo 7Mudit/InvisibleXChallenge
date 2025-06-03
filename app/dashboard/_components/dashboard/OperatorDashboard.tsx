@@ -27,7 +27,7 @@ export function OperatorDashboard() {
       (task) => task.Status === "Completed"
     ).length;
     const inProgress = userTasks.filter(
-      (task) => task.Status === "Task Creation"
+      (task) => task.Status === "Task_Creation"
     ).length;
     const completionRate =
       total > 0 ? Math.round((completed / total) * 100) : 0;
