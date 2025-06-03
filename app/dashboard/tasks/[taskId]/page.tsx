@@ -37,6 +37,7 @@ import {
   TaskStatus,
   calculateTaskProgress,
   getWorkflowSteps,
+  getNextStatus,
 } from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 
@@ -140,21 +141,27 @@ export default function TaskDetailsPage() {
 
   // Get all workflow steps and determine their states
   const workflowSteps = getWorkflowSteps();
-  const currentStep = statusInfo.step;
+  const completedStepNumber = statusInfo.step; // This represents the highest completed step
+  const nextStatus = getNextStatus(task.Status); // Get what the next step should be
 
   const stepCards = workflowSteps.map((step, index) => {
     const stepNumber = index + 1;
     let state: StepCardState = "locked";
 
-    if (stepNumber < currentStep) {
+    if (stepNumber <= completedStepNumber) {
       state = "completed";
-    } else if (stepNumber === currentStep) {
+    } else if (stepNumber === completedStepNumber + 1) {
       // Check if this step needs revision (for V2 rubric with low alignment)
       if (step.status === "Rubric_V2" && needsRevision) {
         state = "needs_revision";
-      } else {
+      } else if (nextStatus && step.status === nextStatus) {
         state = "current";
       }
+    }
+
+    // Special case: if we're forced back to V2 due to low alignment, make V2 needs_revision
+    if (step.status === "Rubric_V2" && needsRevision) {
+      state = "needs_revision";
     }
 
     // Define routes for each step
@@ -216,6 +223,7 @@ export default function TaskDetailsPage() {
       estimatedTime: step.estimatedTime,
     };
   });
+
   const currentStepCard = stepCards.find(
     (step) => step.state === "current" || step.state === "needs_revision"
   );
@@ -239,9 +247,9 @@ export default function TaskDetailsPage() {
 
   const getStepIcon = (
     state: StepCardState,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     IconComponent: React.ComponentType<{ className?: string }>
   ) => {
-    console.log(IconComponent);
     switch (state) {
       case "completed":
         return <CheckCircle className="h-5 w-5 text-green-600" />;
@@ -268,7 +276,7 @@ export default function TaskDetailsPage() {
         return (
           <Button variant="outline" {...buttonProps}>
             <Edit className="h-4 w-4 mr-2" />
-            Edit
+            Edit (Not supported)
           </Button>
         );
       case "current":
