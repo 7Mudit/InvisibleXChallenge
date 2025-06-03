@@ -418,28 +418,6 @@ export default function SubmittedTasksPage() {
               </div>
             </div>
           )}
-
-          {/* Quick Action Card */}
-          <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-foreground">
-                    Ready to create another task?
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Continue building your evaluation dataset with new tasks.
-                  </p>
-                </div>
-                <Button asChild>
-                  <Link href="/dashboard/tasks/new">
-                    <Plus className="w-4 h-4 mr-2" />
-                    New Task
-                  </Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       )}
     </div>

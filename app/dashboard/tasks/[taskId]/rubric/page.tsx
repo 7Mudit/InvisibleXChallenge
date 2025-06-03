@@ -1,12 +1,18 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { debounce } from "lodash";
 
 import {
   Card,
@@ -59,6 +65,23 @@ import {
   type RubricItem,
 } from "@/lib/utils/rubric-prompts";
 
+// Custom debounce hook for performance
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
 // Rubric Schema
 const RubricItemSchema = z.object({
   id: z.string(),
@@ -92,12 +115,21 @@ export default function RubricCreationPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [validationState, setValidationState] = useState({
-    validCount: 0,
-    scoredCount: 0,
-    alignmentPercentage: 0,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    misalignedItems: [] as any[],
+
+  // Force validation updates by using a counter that triggers recalculation
+  const [validationTrigger, setValidationTrigger] = useState(0);
+
+  const currentFormValuesRef = useRef<RubricFormData>({
+    rubricItems: [
+      {
+        id: crypto.randomUUID(),
+        question: "",
+        tag: "",
+        humanScore: undefined,
+        aiScore: undefined,
+      },
+    ],
+    comments: "",
   });
 
   const {
@@ -151,38 +183,92 @@ export default function RubricCreationPage() {
     name: "rubricItems",
   });
 
-  // Debounced validation update
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const updateValidation = useCallback(
-    debounce((items: RubricItem[]) => {
+  const calculateValidationState = useCallback(
+    (items: RubricFormData["rubricItems"]) => {
+      if (!items)
+        return {
+          validCount: 0,
+          scoredCount: 0,
+          alignmentPercentage: 0,
+          misalignedItems: [],
+          hasMinimumRubrics: false,
+          hasAllScores: false,
+          hasMinimumAlignment: false,
+        };
+
       const validItems = items.filter(
-        (item) => item.question?.trim() && item.tag?.trim()
+        (item) => item?.question?.trim() && item?.tag?.trim()
       );
 
       const scoredItems = validItems.filter(
-        (item) => item.humanScore !== undefined && item.aiScore !== undefined
+        (item) => item?.humanScore !== undefined && item?.aiScore !== undefined
       );
 
-      const alignment = calculateAlignment(validItems);
+      const alignedItems = scoredItems.filter(
+        (item) => item.humanScore === item.aiScore
+      );
 
-      setValidationState({
+      const misalignedItems = scoredItems
+        .filter((item) => item.humanScore !== item.aiScore)
+        .map((item) => ({
+          id: item.id,
+          tag: item.tag,
+          question: item.question,
+        }));
+
+      const alignmentPercentage =
+        scoredItems.length > 0
+          ? Math.round((alignedItems.length / scoredItems.length) * 100)
+          : 0;
+
+      return {
         validCount: validItems.length,
         scoredCount: scoredItems.length,
-        alignmentPercentage: alignment.alignmentPercentage,
-        misalignedItems: alignment.misalignedItems,
-      });
-    }, 300),
+        alignmentPercentage,
+        misalignedItems,
+        hasMinimumRubrics: validItems.length >= 15,
+        hasAllScores:
+          scoredItems.length >= 15 && scoredItems.length === validItems.length,
+        hasMinimumAlignment: alignmentPercentage >= 80,
+      };
+    },
     []
   );
 
-  // Watch form changes and update validation
-  const rubricItems = form.watch("rubricItems");
-
   useEffect(() => {
-    updateValidation(rubricItems as RubricItem[]);
-  }, [rubricItems, updateValidation]);
+    const subscription = form.watch((value) => {
+      currentFormValuesRef.current = value as RubricFormData;
 
-  // Generate prompts
+      setValidationTrigger((prev) => prev + 1);
+    });
+
+    currentFormValuesRef.current = form.getValues();
+
+    return () => subscription.unsubscribe();
+  }, [form]);
+
+  const watchedRubricItems = form.watch("rubricItems");
+  const debouncedRubricItems = useDebounce(watchedRubricItems, 300);
+
+  const validationState = useMemo(() => {
+    return calculateValidationState(currentFormValuesRef.current.rubricItems);
+  }, [calculateValidationState, validationTrigger]);
+
+  const debouncedValidationState = useMemo(() => {
+    return calculateValidationState(debouncedRubricItems);
+  }, [debouncedRubricItems, calculateValidationState]);
+
+  const displayValidationState =
+    validationState.validCount > 0 ? validationState : debouncedValidationState;
+
+  const canSubmit = useMemo(() => {
+    return (
+      validationState.hasMinimumRubrics &&
+      validationState.hasAllScores &&
+      validationState.hasMinimumAlignment
+    );
+  }, [validationState]);
+
   const rubricDecomposerPrompt = useMemo(() => {
     return task
       ? generateRubricDecomposerPrompt({
@@ -194,10 +280,12 @@ export default function RubricCreationPage() {
   }, [task]);
 
   const rubricCheckerPrompt = useMemo(() => {
-    if (!task || validationState.validCount < 15) return "";
+    if (!task) return "";
 
-    const validItems = rubricItems.filter(
-      (item) => item.question?.trim() && item.tag?.trim()
+    if (validationState.validCount < 15) return "";
+
+    const validItems = currentFormValuesRef.current.rubricItems?.filter(
+      (item) => item?.question?.trim() && item?.tag?.trim()
     ) as RubricItem[];
 
     return generateRubricCheckerPrompt(
@@ -206,9 +294,9 @@ export default function RubricCreationPage() {
         GeminiResponse: task.GeminiResponse,
         GPTResponse: task.GPTResponse,
       },
-      validItems
+      validItems || []
     );
-  }, [task, rubricItems, validationState.validCount]);
+  }, [task, validationState.validCount]);
 
   const copyToClipboard = useCallback((text: string, label: string) => {
     if (!text) {
@@ -221,7 +309,8 @@ export default function RubricCreationPage() {
       .then(() => {
         toast.success(`${label} copied to clipboard!`);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("Failed to copy:", err);
         toast.error("Failed to copy to clipboard");
       });
   }, []);
@@ -247,36 +336,32 @@ export default function RubricCreationPage() {
         (item) => item.question?.trim() && item.tag?.trim()
       ) as RubricItem[];
 
-      const scoredItems = validItems.filter(
-        (item) => item.humanScore !== undefined && item.aiScore !== undefined
-      );
-
       const alignment = calculateAlignment(validItems);
 
-      // Final validation
-      if (validItems.length < 15) {
+      if (!validationState.hasMinimumRubrics) {
         setSubmitError(
-          `Need at least 15 valid rubric items. Currently have ${validItems.length}.`
+          `Need at least 15 valid rubric items. Currently have ${validationState.validCount}.`
         );
         setIsSubmitting(false);
         return;
       }
 
-      if (scoredItems.length < validItems.length) {
-        setSubmitError(`All ${validItems.length} rubric items must be scored.`);
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (alignment.alignmentPercentage < 80) {
+      if (!validationState.hasAllScores) {
         setSubmitError(
-          `Minimum 80% human-AI alignment required. Current: ${alignment.alignmentPercentage}%`
+          `All ${validationState.validCount} rubric items must be scored.`
         );
         setIsSubmitting(false);
         return;
       }
 
-      // Format data for submission
+      if (!validationState.hasMinimumAlignment) {
+        setSubmitError(
+          `Minimum 80% human-AI alignment required. Current: ${validationState.alignmentPercentage}%`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const formattedRubric = formatRubricForSubmission(validItems);
 
       const rubricData = {
@@ -374,14 +459,6 @@ export default function RubricCreationPage() {
     );
   }
 
-  // Requirements check
-  const hasMinimumRubrics = validationState.validCount >= 15;
-  const hasAllScores =
-    validationState.scoredCount >= validationState.validCount &&
-    validationState.validCount >= 15;
-  const hasMinimumAlignment = validationState.alignmentPercentage >= 80;
-  const canSubmit = hasMinimumRubrics && hasAllScores && hasMinimumAlignment;
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -404,25 +481,27 @@ export default function RubricCreationPage() {
           </div>
         </div>
 
-        {validationState.alignmentPercentage > 0 && hasMinimumRubrics && (
-          <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
-            <CardContent className="p-4">
-              <div className="flex items-center space-x-3">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    Human-AI Alignment
-                  </p>
-                  <p className="text-2xl font-bold text-primary">
-                    {validationState.alignmentPercentage}%
-                  </p>
+        {displayValidationState.alignmentPercentage > 0 &&
+          displayValidationState.hasMinimumRubrics && (
+            <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Human-AI Alignment
+                    </p>
+                    <p className="text-2xl font-bold text-primary">
+                      {displayValidationState.alignmentPercentage}%
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              </CardContent>
+            </Card>
+          )}
       </div>
 
+      {/* Error and progress alerts */}
       {submitError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -432,41 +511,45 @@ export default function RubricCreationPage() {
       )}
 
       {/* Progress Alert */}
-      {(!hasMinimumRubrics || !hasAllScores || !hasMinimumAlignment) && (
+      {(!displayValidationState.hasMinimumRubrics ||
+        !displayValidationState.hasAllScores ||
+        !displayValidationState.hasMinimumAlignment) && (
         <Alert>
           <Info className="h-4 w-4" />
           <AlertTitle>Submission Requirements</AlertTitle>
           <AlertDescription>
             <div className="space-y-1 mt-2">
               <div className="flex items-center space-x-2">
-                {hasMinimumRubrics ? (
+                {displayValidationState.hasMinimumRubrics ? (
                   <CheckCircle className="h-4 w-4 text-green-600" />
                 ) : (
                   <XCircle className="h-4 w-4 text-red-600" />
                 )}
                 <span>
-                  At least 15 rubric items ({validationState.validCount}/15)
+                  At least 15 rubric items ({displayValidationState.validCount}
+                  /15)
                 </span>
               </div>
               <div className="flex items-center space-x-2">
-                {hasAllScores ? (
+                {displayValidationState.hasAllScores ? (
                   <CheckCircle className="h-4 w-4 text-green-600" />
                 ) : (
                   <XCircle className="h-4 w-4 text-red-600" />
                 )}
                 <span>
-                  All items scored ({validationState.scoredCount}/
-                  {validationState.validCount})
+                  All items scored ({displayValidationState.scoredCount}/
+                  {displayValidationState.validCount})
                 </span>
               </div>
               <div className="flex items-center space-x-2">
-                {hasMinimumAlignment ? (
+                {displayValidationState.hasMinimumAlignment ? (
                   <CheckCircle className="h-4 w-4 text-green-600" />
                 ) : (
                   <XCircle className="h-4 w-4 text-red-600" />
                 )}
                 <span>
-                  Minimum 80% alignment ({validationState.alignmentPercentage}%)
+                  Minimum 80% alignment (
+                  {displayValidationState.alignmentPercentage}%)
                 </span>
               </div>
             </div>
@@ -534,10 +617,12 @@ export default function RubricCreationPage() {
                     <span>Evaluation Rubric Items</span>
                     <Badge
                       variant={
-                        validationState.validCount >= 15 ? "default" : "outline"
+                        displayValidationState.validCount >= 15
+                          ? "default"
+                          : "outline"
                       }
                     >
-                      {validationState.validCount} / 15 minimum
+                      {displayValidationState.validCount} / 15 minimum
                     </Badge>
                   </CardTitle>
                   <CardDescription>
@@ -613,7 +698,7 @@ export default function RubricCreationPage() {
                         />
                       </div>
 
-                      {/* Scoring Section */}
+                      {/* Scoring Section - Show only when item has question and tag */}
                       {form.watch(`rubricItems.${index}.question`) &&
                         form.watch(`rubricItems.${index}.tag`) && (
                           <div className="grid gap-4 md:grid-cols-2 pt-4 border-t border-border/30">
@@ -633,17 +718,6 @@ export default function RubricCreationPage() {
                                         onCheckedChange={(checked) => {
                                           if (checked) {
                                             field.onChange(true);
-                                            // If the other box is checked, uncheck it
-                                            if (
-                                              form.getValues(
-                                                `rubricItems.${index}.humanScore`
-                                              ) === false
-                                            ) {
-                                              form.setValue(
-                                                `rubricItems.${index}.humanScore`,
-                                                true
-                                              );
-                                            }
                                           } else if (field.value === true) {
                                             field.onChange(undefined);
                                           }
@@ -657,17 +731,6 @@ export default function RubricCreationPage() {
                                         onCheckedChange={(checked) => {
                                           if (checked) {
                                             field.onChange(false);
-                                            // If the other box is checked, uncheck it
-                                            if (
-                                              form.getValues(
-                                                `rubricItems.${index}.humanScore`
-                                              ) === true
-                                            ) {
-                                              form.setValue(
-                                                `rubricItems.${index}.humanScore`,
-                                                false
-                                              );
-                                            }
                                           } else if (field.value === false) {
                                             field.onChange(undefined);
                                           }
@@ -699,17 +762,6 @@ export default function RubricCreationPage() {
                                         onCheckedChange={(checked) => {
                                           if (checked) {
                                             field.onChange(true);
-                                            // If the other box is checked, uncheck it
-                                            if (
-                                              form.getValues(
-                                                `rubricItems.${index}.aiScore`
-                                              ) === false
-                                            ) {
-                                              form.setValue(
-                                                `rubricItems.${index}.aiScore`,
-                                                true
-                                              );
-                                            }
                                           } else if (field.value === true) {
                                             field.onChange(undefined);
                                           }
@@ -723,17 +775,6 @@ export default function RubricCreationPage() {
                                         onCheckedChange={(checked) => {
                                           if (checked) {
                                             field.onChange(false);
-                                            // If the other box is checked, uncheck it
-                                            if (
-                                              form.getValues(
-                                                `rubricItems.${index}.aiScore`
-                                              ) === true
-                                            ) {
-                                              form.setValue(
-                                                `rubricItems.${index}.aiScore`,
-                                                false
-                                              );
-                                            }
                                           } else if (field.value === false) {
                                             field.onChange(undefined);
                                           }
@@ -793,7 +834,7 @@ export default function RubricCreationPage() {
               </Card>
 
               {/* Rubric Checker Helper - Only show when ready */}
-              {validationState.validCount >= 15 && (
+              {displayValidationState.validCount >= 15 && (
                 <Card className="bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
                   <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
@@ -903,9 +944,8 @@ export default function RubricCreationPage() {
           </Form>
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar - Progress Summary */}
         <div className="space-y-6">
-          {/* Alignment Summary */}
           <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
             <CardHeader>
               <CardTitle className="text-lg">Progress Summary</CardTitle>
@@ -916,16 +956,19 @@ export default function RubricCreationPage() {
                   <span>Rubric Items</span>
                   <span
                     className={
-                      validationState.validCount >= 15
+                      displayValidationState.validCount >= 15
                         ? "text-green-600 font-medium"
                         : ""
                     }
                   >
-                    {validationState.validCount} / 15 required
+                    {displayValidationState.validCount} / 15 required
                   </span>
                 </div>
                 <Progress
-                  value={Math.min((validationState.validCount / 15) * 100, 100)}
+                  value={Math.min(
+                    (displayValidationState.validCount / 15) * 100,
+                    100
+                  )}
                   className="h-2"
                 />
               </div>
@@ -934,14 +977,15 @@ export default function RubricCreationPage() {
                 <div className="flex items-center justify-between text-sm">
                   <span>Scored Items</span>
                   <span>
-                    {validationState.scoredCount} / {validationState.validCount}
+                    {displayValidationState.scoredCount} /{" "}
+                    {displayValidationState.validCount}
                   </span>
                 </div>
                 <Progress
                   value={
-                    validationState.validCount > 0
-                      ? (validationState.scoredCount /
-                          validationState.validCount) *
+                    displayValidationState.validCount > 0
+                      ? (displayValidationState.scoredCount /
+                          displayValidationState.validCount) *
                         100
                       : 0
                   }
@@ -949,35 +993,36 @@ export default function RubricCreationPage() {
                 />
               </div>
 
-              {validationState.alignmentPercentage > 0 &&
-                validationState.validCount >= 15 && (
+              {displayValidationState.alignmentPercentage > 0 &&
+                displayValidationState.validCount >= 15 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span>Human-AI Alignment</span>
                       <span
                         className={`font-bold ${
-                          validationState.alignmentPercentage >= 80
+                          displayValidationState.alignmentPercentage >= 80
                             ? "text-green-600"
                             : "text-amber-600"
                         }`}
                       >
-                        {validationState.alignmentPercentage}%
+                        {displayValidationState.alignmentPercentage}%
                       </span>
                     </div>
                     <Progress
-                      value={validationState.alignmentPercentage}
+                      value={displayValidationState.alignmentPercentage}
                       className="h-2"
                     />
                   </div>
                 )}
 
-              {validationState.misalignedItems.length > 0 && (
+              {displayValidationState.misalignedItems.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-destructive">
-                    Misaligned Items ({validationState.misalignedItems.length}):
+                    Misaligned Items (
+                    {displayValidationState.misalignedItems.length}):
                   </p>
                   <div className="space-y-1 max-h-32 overflow-y-auto">
-                    {validationState.misalignedItems.map((item, idx) => (
+                    {displayValidationState.misalignedItems.map((item, idx) => (
                       <Badge
                         key={idx}
                         variant="destructive"
