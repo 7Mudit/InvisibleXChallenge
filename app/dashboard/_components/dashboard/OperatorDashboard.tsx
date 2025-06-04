@@ -7,32 +7,64 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { api } from "@/lib/trpc/client";
-import { FileText, CheckCircle, Clock, Plus, ArrowRight } from "lucide-react";
+import {
+  FileText,
+  CheckCircle,
+  Plus,
+  ArrowRight,
+  Target,
+  BarChart3,
+} from "lucide-react";
 import Link from "next/link";
 import { OperatorStatsCard } from "../card/OperatorStatsCard";
 import { useMemo } from "react";
 
 export function OperatorDashboard() {
-  // Fetch the user's own tasks using the existing tRPC endpoint
   const { data: userTasks, isLoading, error } = api.tasks.getMyTasks.useQuery();
 
-  // Calculate statistics from the user's actual task data
+  // Calculate statistics from the user's actual task data with new workflow statuses
   const taskStats = useMemo(() => {
     if (!userTasks) {
-      return { total: 0, completed: 0, inProgress: 0, completionRate: 0 };
+      return {
+        total: 0,
+        completed: 0,
+        needingAttention: 0,
+        inEvaluation: 0,
+        completionRate: 0,
+      };
     }
 
     const total = userTasks.length;
     const completed = userTasks.filter(
       (task) => task.Status === "Completed"
     ).length;
-    const inProgress = userTasks.filter(
-      (task) => task.Status === "Task_Creation"
+
+    // Tasks that need active user work
+    const needingAttention = userTasks.filter((task) =>
+      [
+        "Task_Creation",
+        "Rubric_V1",
+        "Rubric_V2",
+        "Human_Eval_Gemini",
+        "Human_Eval_GPT",
+      ].includes(task.Status)
     ).length;
+
+    // Tasks currently in model evaluation phase
+    const inEvaluation = userTasks.filter((task) =>
+      ["Model_Eval_Gemini", "Model_Eval_GPT"].includes(task.Status)
+    ).length;
+
     const completionRate =
       total > 0 ? Math.round((completed / total) * 100) : 0;
 
-    return { total, completed, inProgress, completionRate };
+    return {
+      total,
+      completed,
+      needingAttention,
+      inEvaluation,
+      completionRate,
+    };
   }, [userTasks]);
 
   if (isLoading) {
@@ -85,12 +117,13 @@ export function OperatorDashboard() {
           Welcome back! 👋
         </h1>
         <p className="text-muted-foreground text-lg">
-          Here&apos;s an overview of your evaluation tasks.
+          Here&apos;s an overview of your evaluation tasks and workflow
+          progress.
         </p>
       </div>
 
-      {/* Operator's Personal Task Statistics - Only 3 cards now */}
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* Updated Task Statistics - 4 cards reflecting new workflow */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <OperatorStatsCard
           title="Total Tasks"
           value={taskStats.total.toString()}
@@ -106,11 +139,18 @@ export function OperatorDashboard() {
           colorClass="bg-gradient-to-br from-green-500 to-green-600"
         />
         <OperatorStatsCard
-          title="In Progress"
-          value={taskStats.inProgress.toString()}
-          change="Awaiting rubric creation"
-          icon={Clock}
+          title="Need Attention"
+          value={taskStats.needingAttention.toString()}
+          change="Require your input"
+          icon={Target}
           colorClass="bg-gradient-to-br from-amber-500 to-amber-600"
+        />
+        <OperatorStatsCard
+          title="In Evaluation"
+          value={taskStats.inEvaluation.toString()}
+          change="Model evaluation phase"
+          icon={BarChart3}
+          colorClass="bg-gradient-to-br from-purple-500 to-purple-600"
         />
       </div>
 
@@ -122,7 +162,9 @@ export function OperatorDashboard() {
               <Plus className="h-5 w-5" />
               <span>Create New Task</span>
             </CardTitle>
-            <CardDescription>Start a new evaluation task</CardDescription>
+            <CardDescription>
+              Start a new evaluation task with step-by-step workflow
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Button
@@ -147,7 +189,7 @@ export function OperatorDashboard() {
               <span>Manage Your Tasks</span>
             </CardTitle>
             <CardDescription>
-              View and continue your evaluation tasks
+              View and continue your evaluation workflow
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -168,6 +210,92 @@ export function OperatorDashboard() {
         </Card>
       </div>
 
+      {/* Workflow Progress Summary */}
+      {taskStats.total > 0 && (
+        <Card className="bg-gradient-to-br from-muted/30 to-muted/10 border-border/50">
+          <CardHeader>
+            <CardTitle>Your Workflow Progress</CardTitle>
+            <CardDescription>
+              Overview of your evaluation tasks across the step-by-step workflow
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="flex flex-col items-center space-y-1 p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-lg">
+                <span className="text-2xl font-bold text-blue-600">
+                  {taskStats.total}
+                </span>
+                <span className="text-blue-600 font-medium">Total</span>
+                <span className="text-xs text-muted-foreground">All tasks</span>
+              </div>
+              <div className="flex flex-col items-center space-y-1 p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg">
+                <span className="text-2xl font-bold text-amber-600">
+                  {taskStats.needingAttention}
+                </span>
+                <span className="text-amber-600 font-medium">Active</span>
+                <span className="text-xs text-muted-foreground">
+                  Need your work
+                </span>
+              </div>
+              <div className="flex flex-col items-center space-y-1 p-3 bg-purple-50/50 dark:bg-purple-950/20 rounded-lg">
+                <span className="text-2xl font-bold text-purple-600">
+                  {taskStats.inEvaluation}
+                </span>
+                <span className="text-purple-600 font-medium">Evaluating</span>
+                <span className="text-xs text-muted-foreground">
+                  Model phase
+                </span>
+              </div>
+              <div className="flex flex-col items-center space-y-1 p-3 bg-green-50/50 dark:bg-green-950/20 rounded-lg">
+                <span className="text-2xl font-bold text-green-600">
+                  {taskStats.completed}
+                </span>
+                <span className="text-green-600 font-medium">Complete</span>
+                <span className="text-xs text-muted-foreground">
+                  {taskStats.completionRate}% done
+                </span>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Overall Completion
+                </span>
+                <span className="font-medium text-primary">
+                  {taskStats.completionRate}%
+                </span>
+              </div>
+              <div className="w-full bg-muted/50 rounded-full h-3">
+                <div
+                  className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full transition-all duration-500"
+                  style={{ width: `${taskStats.completionRate}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Next Steps Hint */}
+            {taskStats.needingAttention > 0 && (
+              <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                <div className="flex items-center space-x-2">
+                  <Target className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm font-medium text-amber-800 dark:text-amber-400">
+                    {taskStats.needingAttention} task
+                    {taskStats.needingAttention !== 1 ? "s" : ""} need your
+                    attention
+                  </span>
+                </div>
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  Continue working on rubric creation, human evaluations, or
+                  other active steps.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Show a helpful message if user has no tasks yet */}
       {taskStats.total === 0 && (
         <Card className="bg-gradient-to-br from-muted/50 to-muted/30 border-border/50">
@@ -180,8 +308,8 @@ export function OperatorDashboard() {
                 Ready to get started?
               </h3>
               <p className="text-muted-foreground mt-1">
-                Create your first evaluation task to begin contributing to the
-                platform.
+                Create your first evaluation task to begin the step-by-step
+                rubric workflow.
               </p>
             </div>
             <Button asChild className="mt-4">

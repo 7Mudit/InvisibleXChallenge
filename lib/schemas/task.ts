@@ -441,7 +441,7 @@ export function getNextStatus(currentStatus: TaskStatus): TaskStatus | null {
     case "Model_Eval_GPT":
       return "Completed";
     case "Completed":
-      return null;
+      return "Completed";
     default:
       return null;
   }

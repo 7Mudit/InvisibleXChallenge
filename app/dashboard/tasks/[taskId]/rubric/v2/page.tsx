@@ -38,6 +38,7 @@ import {
   Lightbulb,
   Zap,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
@@ -49,6 +50,7 @@ import {
 } from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
 export default function RubricV2Page() {
   const params = useParams();
@@ -364,6 +366,11 @@ export default function RubricV2Page() {
     console.error("Error parsing V1 rubric:", error);
   }
 
+  // Check if we should show misaligned items
+  const hasLowAlignment =
+    task.Alignment_Gemini && (task.Alignment_Gemini as number) < 80;
+  const hasMisalignedItems = task.Misaligned_Gemini && hasLowAlignment;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -393,6 +400,92 @@ export default function RubricV2Page() {
           </div>
         </div>
       </div>
+
+      {/* Misaligned Items Alert - Only show if misaligned items exist */}
+      {hasMisalignedItems && (
+        <Card className="bg-gradient-to-br from-red-50/50 to-red-100/50 dark:from-red-950/20 dark:to-red-900/20 border-red-200 dark:border-red-800">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <span>Misaligned Rubric Items</span>
+            </CardTitle>
+            <CardDescription>
+              {`These rubric items had different scores between human and model evaluation (${task.Alignment_Gemini}% alignment). Focus on improving these items.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {(() => {
+              try {
+                const misalignedItems = JSON.parse(
+                  task.Misaligned_Gemini as string
+                );
+                return (
+                  <div className="space-y-3">
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {misalignedItems.map((item: any, index: number) => (
+                      <div
+                        key={item.id}
+                        className="p-3 bg-red-50/50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800"
+                      >
+                        <div className="flex items-start space-x-2">
+                          <span className="bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
+                            {index + 1}
+                          </span>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-foreground">
+                              {item.id}: {item.question}
+                            </p>
+                            <div className="flex items-center space-x-4 mt-1 text-xs">
+                              <span className="text-muted-foreground">
+                                Human:{" "}
+                                <span
+                                  className={cn(
+                                    "font-medium",
+                                    item.human_score === "Yes"
+                                      ? "text-green-600"
+                                      : "text-red-600"
+                                  )}
+                                >
+                                  {item.human_score}
+                                </span>
+                              </span>
+                              <span className="text-muted-foreground">
+                                Model:{" "}
+                                <span
+                                  className={cn(
+                                    "font-medium",
+                                    item.model_score === "Yes"
+                                      ? "text-green-600"
+                                      : "text-red-600"
+                                  )}
+                                >
+                                  {item.model_score}
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="text-xs text-muted-foreground mt-3 p-2 bg-red-50/30 dark:bg-red-950/20 rounded">
+                      <strong>Revision tips:</strong> Consider rephrasing these
+                      questions to be more specific, breaking complex criteria
+                      into simpler parts, or clarifying ambiguous terms.
+                    </div>
+                  </div>
+                );
+              } catch (error) {
+                console.error("Error parsing misaligned items:", error);
+                return (
+                  <p className="text-sm text-muted-foreground">
+                    Unable to parse misaligned items data.
+                  </p>
+                );
+              }
+            })()}
+          </CardContent>
+        </Card>
+      )}
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">

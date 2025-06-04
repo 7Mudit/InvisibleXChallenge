@@ -338,7 +338,7 @@ export default function TaskDetailsPage() {
       </div>
 
       {/* Overall Progress */}
-      <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+      <Card className="bg-gradient-to-br  border-primary/20">
         <CardContent className="p-6">
           <div className="space-y-4">
             <div className="flex items-center justify-between">

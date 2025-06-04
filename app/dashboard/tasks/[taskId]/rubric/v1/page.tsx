@@ -373,8 +373,7 @@ export default function RubricV1Page() {
                       1
                     </span>
                     <span>
-                      Copy the rubric decomposer prompt below to your AI tool
-                      (ChatGPT, Claude, etc.)
+                      Copy the rubric decomposer prompt below to gemini.
                     </span>
                   </div>
                   <div className="flex items-start space-x-2">
