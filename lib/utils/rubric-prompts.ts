@@ -205,7 +205,6 @@ Now generate rubrics for the conversation below:
 
 **answer:** ${task.GeminiResponse}`;
 }
-
 /**
  * Generate the rubric checker system prompt for evaluating responses
  */
@@ -226,17 +225,31 @@ export function generateRubricCheckerPrompt(
     return acc;
   }, {} as Record<string, string>);
 
-  return `You will grade a question as being CORRECT if the answer follows the criteria from a provided rubric. Otherwise if it does not follow the rubric, respond INCORRECT.
+  return `You will evaluate a model response against specific rubric criteria. For each criterion, answer "Yes" if the response meets the requirement or "No" if it doesn't.
 
-Question: ${task.Prompt}
+**Question/Task:**
+${task.Prompt}
 
-Rubric: ${JSON.stringify(rubricJson, null, 2)}
+**Model Response to Evaluate:**
+${task.GeminiResponse}
 
-Answer: {model_answer}
+**Evaluation Rubric:**
+${JSON.stringify(rubricJson, null, 2)}
 
-Following the rubric, is the answer YES or NO?
+**Instructions:**
+1. Read each rubric criterion carefully
+2. Check if the model response meets that specific requirement
+3. Respond with "Yes" if the criterion is met, "No" if it is not met
+4. Be objective and consistent in your evaluation
 
-Response:`;
+**Format your response as:**
+rubric_1: [Yes/No]
+rubric_2: [Yes/No]
+rubric_3: [Yes/No]
+...
+(continue for all rubric items)
+
+Please evaluate the model response against each criterion:`;
 }
 
 /**

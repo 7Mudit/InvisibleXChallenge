@@ -119,7 +119,7 @@ export default function HumanEvalGeminiPage() {
     }
   }, [task, form]);
 
-  // Watch form changes to update progress - FIXED: Better tracking
+  // Watch form changes to update progress
   const allFormValues = form.watch();
   useEffect(() => {
     if (!rubricQuestions.length) return;

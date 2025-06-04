@@ -1,0 +1,795 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
+import {
+  ArrowLeft,
+  AlertCircle,
+  Bot,
+  Loader2,
+  ArrowRight,
+  Copy,
+  CheckCircle,
+  ThumbsUp,
+  ThumbsDown,
+  Eye,
+  EyeOff,
+  BarChart3,
+  AlertTriangle,
+  Target,
+} from "lucide-react";
+
+import { api } from "@/lib/trpc/client";
+import { getStatusDisplayInfo } from "@/lib/schemas/task";
+import { generateRubricCheckerPrompt } from "@/lib/utils/rubric-prompts";
+import { professionalSectors } from "@/constants/ProfessionalSectors";
+import { cn } from "@/lib/utils";
+
+interface RubricQuestion {
+  key: string;
+  question: string;
+  number: number;
+}
+
+interface ModelEvalFormData {
+  taskId: string;
+  evaluations: Record<string, "Yes" | "No">;
+}
+
+export default function ModelEvalGeminiPage() {
+  const params = useParams();
+  const router = useRouter();
+  const taskId = params.taskId as string;
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [promptVisible, setPromptVisible] = useState(false);
+  const [rubricQuestions, setRubricQuestions] = useState<RubricQuestion[]>([]);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [humanScores, setHumanScores] = useState<Record<string, "Yes" | "No">>(
+    {}
+  );
+
+  // Fetch task data
+  const {
+    data: task,
+    isLoading: taskLoading,
+    error: taskError,
+    refetch,
+  } = api.tasks.getTaskById.useQuery(
+    { taskId },
+    {
+      enabled: !!taskId,
+    }
+  );
+
+  // Form setup
+  const form = useForm<ModelEvalFormData>({
+    defaultValues: {
+      taskId,
+      evaluations: {},
+    },
+  });
+
+  // Parse V2 rubric and load existing evaluations
+  useEffect(() => {
+    if (task?.Rubric_V2 && typeof task.Rubric_V2 === "string") {
+      try {
+        const rubric = JSON.parse(task.Rubric_V2);
+        const questions: RubricQuestion[] = Object.entries(rubric)
+          .filter(([key]) => key.startsWith("rubric_"))
+          .map(([key, question]) => ({
+            key,
+            question: String(question),
+            number: parseInt(key.replace("rubric_", "")),
+          }))
+          .sort((a, b) => a.number - b.number);
+
+        setRubricQuestions(questions);
+
+        // Load human scores for comparison
+        if (
+          task.Human_Eval_Gemini &&
+          typeof task.Human_Eval_Gemini === "string"
+        ) {
+          try {
+            const humanEvals = JSON.parse(task.Human_Eval_Gemini);
+            setHumanScores(humanEvals);
+          } catch (error) {
+            console.error("Error parsing human evaluations:", error);
+          }
+        }
+
+        // Load existing model evaluations if available
+        if (
+          task.Model_Eval_Gemini &&
+          typeof task.Model_Eval_Gemini === "string"
+        ) {
+          try {
+            const existingEvals = JSON.parse(task.Model_Eval_Gemini);
+            const evaluations: Record<string, "Yes" | "No"> = {};
+            questions.forEach((q) => {
+              if (existingEvals[q.key]) {
+                evaluations[q.key] = existingEvals[q.key];
+              }
+            });
+            form.setValue("evaluations", evaluations);
+          } catch (error) {
+            console.error("Error parsing existing model evaluations:", error);
+          }
+        }
+      } catch (error) {
+        console.error("Error parsing V2 rubric:", error);
+        toast.error("Failed to parse V2 rubric");
+      }
+    }
+  }, [task, form]);
+
+  // Watch form changes to update progress
+  const allFormValues = form.watch();
+  useEffect(() => {
+    if (!rubricQuestions.length) return;
+
+    const evaluations = allFormValues.evaluations || {};
+    const completedAnswers = rubricQuestions.filter((q) => {
+      const answer = evaluations[q.key];
+      return answer === "Yes" || answer === "No";
+    });
+
+    setCompletedCount(completedAnswers.length);
+  }, [allFormValues, rubricQuestions]);
+
+  // Mutation for updating model evaluation
+  const updateModelEvalMutation = api.tasks.updateModelEvalGemini.useMutation({
+    onSuccess: (data) => {
+      toast.success("Model evaluation saved successfully!", {
+        description: data.message,
+      });
+      setIsSubmitting(false);
+
+      // Handle routing based on alignment
+      if (data.needsRevision) {
+        toast.warning(`Alignment is ${data.alignment}% - revision required`, {
+          description: "Redirecting to V2 rubric for improvements...",
+        });
+        router.push(`/dashboard/tasks/${taskId}/rubric/v2`);
+      } else {
+        toast.success(`Great alignment: ${data.alignment}%!`, {
+          description: "Proceeding to GPT evaluation...",
+        });
+        router.push(`/dashboard/tasks/${taskId}/evaluation/human-gpt`);
+      }
+    },
+    onError: (error) => {
+      setIsSubmitting(false);
+      toast.error("Failed to save model evaluation", {
+        description: error.message,
+      });
+    },
+  });
+
+  // Generate the checker prompt
+  const checkerPrompt = task?.Rubric_V2
+    ? generateRubricCheckerPrompt(
+        {
+          Prompt: task.Prompt,
+          GeminiResponse: task.GeminiResponse,
+          GPTResponse: task.GPTResponse,
+        },
+        rubricQuestions.map((q) => ({
+          id: q.key,
+          question: q.question,
+          tag: `criterion_${q.number}`,
+        }))
+      )
+    : "";
+
+  // Copy prompt to clipboard
+  const copyPromptToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(checkerPrompt);
+      setPromptCopied(true);
+      toast.success("Prompt copied to clipboard!");
+      setTimeout(() => setPromptCopied(false), 2000);
+    } catch (error) {
+      console.error("Error copying the prompt", error);
+      toast.error("Failed to copy prompt to clipboard");
+    }
+  };
+
+  // Calculate current alignment for preview
+  const calculateCurrentAlignment = () => {
+    const modelEvals = form.watch("evaluations") || {};
+    const answeredQuestions = rubricQuestions.filter(
+      (q) => humanScores[q.key] && modelEvals[q.key]
+    );
+
+    if (answeredQuestions.length === 0)
+      return { percentage: 0, aligned: 0, total: 0 };
+
+    const aligned = answeredQuestions.filter(
+      (q) => humanScores[q.key] === modelEvals[q.key]
+    ).length;
+
+    return {
+      percentage: Math.round((aligned / answeredQuestions.length) * 100),
+      aligned,
+      total: answeredQuestions.length,
+    };
+  };
+
+  // Form submission
+  const onSubmit = async (data: ModelEvalFormData) => {
+    setIsSubmitting(true);
+
+    // Check all questions are answered
+    const unansweredQuestions = rubricQuestions.filter(
+      (q) => !data.evaluations[q.key]
+    );
+
+    if (unansweredQuestions.length > 0) {
+      setIsSubmitting(false);
+      toast.error("Please answer all rubric questions", {
+        description: `${unansweredQuestions.length} questions remaining`,
+      });
+      return;
+    }
+
+    // Convert evaluations to the required JSON format
+    const modelScores = JSON.stringify(data.evaluations);
+
+    try {
+      await updateModelEvalMutation.mutateAsync({
+        taskId: data.taskId,
+        modelScores,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (error) {
+      // Error handling is done in the mutation
+    }
+  };
+
+  if (taskLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              Loading...
+            </h1>
+          </div>
+        </div>
+        <div className="flex items-center justify-center py-12">
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Loading task details...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (taskError || !task) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              Task Not Found
+            </h1>
+          </div>
+        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error Loading Task</AlertTitle>
+          <AlertDescription>
+            {taskError?.message || "Task not found or access denied."}
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => refetch()}
+            >
+              Try Again
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  // Check if task is in correct state
+  if (!["Human_Eval_Gemini", "Model_Eval_Gemini"].includes(task.Status)) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              Invalid Task State
+            </h1>
+          </div>
+        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Cannot Evaluate Response</AlertTitle>
+          <AlertDescription>
+            This task is not in the correct state for model evaluation. Current
+            status: {getStatusDisplayInfo(task.Status).label}
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  // Check if required data exists
+  if (!task.Rubric_V2 || !task.Human_Eval_Gemini) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              Prerequisites Missing
+            </h1>
+          </div>
+        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Missing Required Data</AlertTitle>
+          <AlertDescription>
+            You need to complete the V2 rubric and human evaluation before model
+            evaluation.
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 ml-2"
+              onClick={() =>
+                router.push(
+                  `/dashboard/tasks/${taskId}/evaluation/human-gemini`
+                )
+              }
+            >
+              Complete Human Evaluation
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  const sectorInfo = professionalSectors.find(
+    (s) => s.value === task.ProfessionalSector
+  );
+
+  const progressPercentage =
+    rubricQuestions.length > 0
+      ? Math.round((completedCount / rubricQuestions.length) * 100)
+      : 0;
+
+  const currentAlignment = calculateCurrentAlignment();
+
+  return (
+    <div className="space-y-6 pb-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="space-y-1">
+            <div className="flex items-center space-x-3">
+              <h1 className="text-3xl font-bold tracking-tight text-foreground">
+                Model Evaluate Gemini
+              </h1>
+              <Badge
+                className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                variant="outline"
+              >
+                Step 5
+              </Badge>
+            </div>
+            <div className="flex items-center space-x-4 text-sm text-muted-foreground">
+              <span>{task.TaskID}</span>
+              {sectorInfo && (
+                <div className="flex items-center space-x-1">
+                  <span>{sectorInfo.icon}</span>
+                  <span>{sectorInfo.label}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Section: Instructions and Prompt */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Instructions */}
+        <Card className="bg-gradient-to-br from-amber-50/50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200 dark:border-amber-800">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Target className="h-5 w-5 text-amber-600" />
+              <span>Model Evaluation Process</span>
+            </CardTitle>
+            <CardDescription>
+              How to get the model&apos;s evaluation of the Gemini response
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-start space-x-2">
+              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+                1
+              </span>
+              <span>Copy the rubric checker prompt below to your AI tool</span>
+            </div>
+            <div className="flex items-start space-x-2">
+              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+                2
+              </span>
+              <span>
+                The AI will evaluate each rubric criterion with Yes/No
+              </span>
+            </div>
+            <div className="flex items-start space-x-2">
+              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+                3
+              </span>
+              <span>Input the model&apos;s responses in the form below</span>
+            </div>
+            <div className="flex items-start space-x-2">
+              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+                4
+              </span>
+              <span>
+                We&apos;ll calculate alignment with your human evaluation
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Current Alignment Preview */}
+        <Card className="bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <BarChart3 className="h-5 w-5 text-blue-600" />
+              <span>Alignment Preview</span>
+            </CardTitle>
+            <CardDescription>
+              Real-time alignment between human and model scores
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Current Alignment
+                </p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {currentAlignment.percentage}%
+                </p>
+              </div>
+              <div className="text-right text-sm text-muted-foreground">
+                <p>
+                  {currentAlignment.aligned} of {currentAlignment.total} aligned
+                </p>
+                <p
+                  className={cn(
+                    "font-medium",
+                    currentAlignment.percentage >= 80
+                      ? "text-green-600"
+                      : "text-red-600"
+                  )}
+                >
+                  {currentAlignment.percentage >= 80
+                    ? "✓ Pass"
+                    : "⚠ Needs 80%+"}
+                </p>
+              </div>
+            </div>
+            <Progress value={currentAlignment.percentage} className="h-2" />
+
+            {currentAlignment.total > 0 && currentAlignment.percentage < 80 && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="text-sm">
+                  Alignment below 80% will require V2 rubric revision
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Rubric Checker Prompt */}
+      <Card className="bg-gradient-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-950/20 dark:to-indigo-950/20 border-purple-200 dark:border-purple-800">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Bot className="h-5 w-5 text-purple-600" />
+              <div>
+                <CardTitle>Rubric Checker Prompt</CardTitle>
+                <CardDescription>
+                  Copy this prompt to your AI tool to get model evaluation
+                </CardDescription>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={copyPromptToClipboard}
+              >
+                {promptCopied ? (
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                {promptCopied ? "Copied!" : "Copy"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setPromptVisible(!promptVisible)}
+              >
+                {promptVisible ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+                {promptVisible ? "Hide" : "Show"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        {promptVisible && (
+          <CardContent>
+            <div className="space-y-4">
+              <div className="relative">
+                <Textarea
+                  value={checkerPrompt}
+                  readOnly
+                  className="min-h-[400px] font-mono text-xs bg-background/50 resize-none"
+                />
+              </div>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Progress Card */}
+      <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+        <CardContent className="p-6">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">
+                  Model Evaluation Progress
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {completedCount} of {rubricQuestions.length} questions
+                  answered
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-3xl font-bold text-primary">
+                  {progressPercentage}%
+                </p>
+                <p className="text-sm text-muted-foreground">Complete</p>
+              </div>
+            </div>
+            <Progress value={progressPercentage} className="h-3" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Main Evaluation Section */}
+      <div className="min-h-0">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          {/* Evaluation Questions */}
+          <Card className="bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Bot className="h-5 w-5 text-green-600" />
+                <span>Model Evaluation Input</span>
+              </CardTitle>
+              <CardDescription>
+                Input the model&apos;s Yes/No responses for each rubric
+                criterion
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {rubricQuestions.map((question, index) => {
+                const currentValue = form.watch(`evaluations.${question.key}`);
+                const humanValue = humanScores[question.key];
+                const isAligned =
+                  currentValue && humanValue && currentValue === humanValue;
+                const isMisaligned =
+                  currentValue && humanValue && currentValue !== humanValue;
+
+                return (
+                  <div
+                    key={question.key}
+                    className={cn(
+                      "space-y-3 p-4 rounded-lg border transition-all duration-200",
+                      isAligned &&
+                        "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20",
+                      isMisaligned &&
+                        "border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-950/20",
+                      !currentValue && "border-border/30 bg-background/30"
+                    )}
+                  >
+                    <div className="flex items-start space-x-3">
+                      <span className="bg-green-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
+                        {index + 1}
+                      </span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium leading-relaxed text-foreground">
+                          {question.question}
+                        </p>
+                        {humanValue && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Human score:{" "}
+                            <span className="font-medium">{humanValue}</span>
+                            {currentValue && (
+                              <span
+                                className={cn(
+                                  "ml-2",
+                                  isAligned && "text-green-600",
+                                  isMisaligned && "text-red-600"
+                                )}
+                              >
+                                {isAligned && "✓ Aligned"}
+                                {isMisaligned && "⚠ Misaligned"}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="ml-9">
+                      <RadioGroup
+                        value={currentValue || ""}
+                        onValueChange={(value) => {
+                          form.setValue(
+                            `evaluations.${question.key}`,
+                            value as "Yes" | "No"
+                          );
+                          form.trigger(`evaluations.${question.key}`);
+                        }}
+                        className="flex items-center space-x-6"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem
+                            value="Yes"
+                            id={`${question.key}-yes`}
+                            className="text-green-600 border-green-600"
+                          />
+                          <Label
+                            htmlFor={`${question.key}-yes`}
+                            className={cn(
+                              "flex items-center space-x-2 cursor-pointer text-sm",
+                              currentValue === "Yes" &&
+                                "text-green-600 font-medium"
+                            )}
+                          >
+                            <ThumbsUp className="h-4 w-4" />
+                            <span>Yes</span>
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem
+                            value="No"
+                            id={`${question.key}-no`}
+                            className="text-red-600 border-red-600"
+                          />
+                          <Label
+                            htmlFor={`${question.key}-no`}
+                            className={cn(
+                              "flex items-center space-x-2 cursor-pointer text-sm",
+                              currentValue === "No" &&
+                                "text-red-600 font-medium"
+                            )}
+                          >
+                            <ThumbsDown className="h-4 w-4" />
+                            <span>No</span>
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          {/* Submit Section */}
+          <Card className="bg-background/80 border-border/50">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push(`/dashboard/tasks/${taskId}`)}
+                  disabled={isSubmitting}
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-muted-foreground text-right">
+                    <p>
+                      {completedCount}/{rubricQuestions.length} questions
+                      completed
+                    </p>
+                    {currentAlignment.total > 0 && (
+                      <p
+                        className={cn(
+                          "font-medium",
+                          currentAlignment.percentage >= 80
+                            ? "text-green-600"
+                            : "text-amber-600"
+                        )}
+                      >
+                        Alignment: {currentAlignment.percentage}%
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={
+                      isSubmitting || completedCount !== rubricQuestions.length
+                    }
+                    className="min-w-[200px]"
+                  >
+                    {isSubmitting ? (
+                      <div className="flex items-center space-x-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Calculating Alignment...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-2">
+                        <span>Submit & Calculate</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </div>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </form>
+      </div>
+    </div>
+  );
+}
