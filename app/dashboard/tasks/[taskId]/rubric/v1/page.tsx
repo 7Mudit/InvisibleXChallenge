@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { debounce } from "lodash";
 
 import {
   Card,
@@ -59,12 +58,6 @@ export default function RubricV1Page() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
   const [promptVisible, setPromptVisible] = useState(false);
-  const [isValidating, setIsValidating] = useState(false);
-  const [rubricValidation, setRubricValidation] = useState<{
-    isValid: boolean;
-    errors: string[];
-    rubricCount: number;
-  }>({ isValid: false, errors: [], rubricCount: 0 });
 
   // Fetch task data
   const {
@@ -88,85 +81,20 @@ export default function RubricV1Page() {
     },
   });
 
-  // Load existing V1 rubric if available
+  // Load existing V1 rubric if available - exactly the same as before
   useEffect(() => {
     if (task?.Rubric_V1 && typeof task.Rubric_V1 === "string") {
       form.setValue("rubricV1", task.Rubric_V1);
-      setRubricValidation(validateRubricJSON(task.Rubric_V1));
     }
   }, [task, form]);
 
-  // Memoized validation function with caching
-  const validateRubricMemoized = useMemo(() => {
-    const cache = new Map<
-      string,
-      { isValid: boolean; errors: string[]; rubricCount: number }
-    >();
-
-    return (value: string) => {
-      // Check cache first
-      if (cache.has(value)) {
-        return cache.get(value)!;
-      }
-
-      // Validate and cache result
-      const result = validateRubricJSON(value);
-      cache.set(value, result);
-
-      // Limit cache size to prevent memory leaks
-      if (cache.size > 50) {
-        const firstKey = cache.keys().next().value;
-        if (firstKey) cache.delete(firstKey);
-      }
-
-      return result;
-    };
-  }, []);
-
-  // Debounced validation function
-  const debouncedValidation = useMemo(
-    () =>
-      debounce((value: string) => {
-        setIsValidating(true);
-
-        if (!value || value.trim().length === 0) {
-          setRubricValidation({ isValid: false, errors: [], rubricCount: 0 });
-          setIsValidating(false);
-          return;
-        }
-
-        try {
-          const validation = validateRubricMemoized(value);
-          setRubricValidation(validation);
-        } catch (error) {
-          console.error("Validation error:", error);
-          setRubricValidation({
-            isValid: false,
-            errors: ["Validation failed"],
-            rubricCount: 0,
-          });
-        } finally {
-          setIsValidating(false);
-        }
-      }, 500), // 500ms delay
-    [validateRubricMemoized]
-  );
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      debouncedValidation.cancel();
-    };
-  }, [debouncedValidation]);
-
-  // Mutation for updating V1 rubric
+  // Mutation for updating V1 rubric - exactly the same as before
   const updateRubricV1Mutation = api.tasks.updateRubricV1.useMutation({
     onSuccess: (data) => {
       toast.success("V1 Rubric saved successfully!", {
         description: data.message,
       });
       setIsSubmitting(false);
-      // Navigate to V2 rubric creation
       router.push(`/dashboard/tasks/${taskId}/rubric/v2`);
     },
     onError: (error) => {
@@ -199,25 +127,11 @@ export default function RubricV1Page() {
     }
   };
 
-  // Handle rubric change with debouncing
-  const handleRubricChange = (value: string) => {
-    // For empty values, validate immediately for better UX
-    if (!value || value.trim().length === 0) {
-      setRubricValidation({ isValid: false, errors: [], rubricCount: 0 });
-      setIsValidating(false);
-      return false;
-    }
-
-    // Use debounced validation for non-empty values
-    debouncedValidation(value);
-    return true; // Return optimistic result
-  };
-
-  // Form submission
+  // Form submission with validation moved here
   const onSubmit = async (data: RubricV1Input) => {
     setIsSubmitting(true);
 
-    // Final validation
+    // Validate only when user actually submits the form
     const validation = validateRubricJSON(data.rubricV1);
     if (!validation.isValid) {
       setIsSubmitting(false);
@@ -235,6 +149,7 @@ export default function RubricV1Page() {
     }
   };
 
+  // All loading and error states remain exactly the same
   if (taskLoading) {
     return (
       <div className="space-y-6">
@@ -290,7 +205,7 @@ export default function RubricV1Page() {
     );
   }
 
-  // Check if task is in correct state
+  // Check if task is in correct state - exactly the same as before
   if (!["Task_Creation", "Rubric_V1"].includes(task.Status)) {
     return (
       <div className="space-y-6">
@@ -323,7 +238,7 @@ export default function RubricV1Page() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header - exactly the same as before */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="icon" onClick={() => router.back()}>
@@ -354,7 +269,7 @@ export default function RubricV1Page() {
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* Left Column: Prompt and Instructions */}
+            {/* Left Column: Instructions and Prompt */}
             <div className="space-y-6">
               {/* Instructions Card */}
               <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
@@ -456,7 +371,7 @@ export default function RubricV1Page() {
               </Card>
             </div>
 
-            {/* Right Column: Rubric Input */}
+            {/* Right Column: Task Overview and Rubric Input */}
             <div className="space-y-6">
               {/* Task Overview */}
               <Card className="bg-card/50 backdrop-blur-sm border-border/50">
@@ -472,7 +387,7 @@ export default function RubricV1Page() {
                       <p className="text-xs text-muted-foreground">
                         Task Prompt
                       </p>
-                      <p className="text-sm text-foreground leading-relaxed mt-1">
+                      <p className="text-sm wrap-anywhere text-foreground leading-relaxed mt-1">
                         {task.Prompt}
                       </p>
                     </div>
@@ -480,7 +395,7 @@ export default function RubricV1Page() {
                       <p className="text-xs text-muted-foreground">
                         Gemini Response (first 200 characters)
                       </p>
-                      <p className="text-sm text-muted-foreground font-mono bg-muted/30 p-2 rounded mt-1">
+                      <p className="text-sm text-muted-foreground font-mono bg-muted/30 p-2 rounded mt-1 wrap-anywhere">
                         {task.GeminiResponse.substring(0, 200)}
                         {task.GeminiResponse.length > 200 && "..."}
                       </p>
@@ -489,7 +404,7 @@ export default function RubricV1Page() {
                 </CardContent>
               </Card>
 
-              {/* Rubric Input */}
+              {/*  Rubric Input  */}
               <Card className="bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
                 <CardHeader>
                   <CardTitle>V1 Rubric JSON</CardTitle>
@@ -509,10 +424,6 @@ export default function RubricV1Page() {
                             placeholder='{"rubric_1": "Does the response clearly explain...?", "rubric_2": "Does the response provide specific examples?", ...}'
                             className="min-h-[300px] font-mono text-sm bg-background/50"
                             {...field}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              handleRubricChange(e.target.value);
-                            }}
                           />
                         </FormControl>
                         <FormDescription>
@@ -523,53 +434,12 @@ export default function RubricV1Page() {
                       </FormItem>
                     )}
                   />
-
-                  {/* Validation Status */}
-                  {form.watch("rubricV1") && (
-                    <div className="mt-4 space-y-2">
-                      <div className="flex items-center space-x-2">
-                        {isValidating ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        ) : rubricValidation.isValid ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <AlertCircle className="h-5 w-5 text-red-600" />
-                        )}
-                        <span
-                          className={`text-sm font-medium ${
-                            isValidating
-                              ? "text-muted-foreground"
-                              : rubricValidation.isValid
-                              ? "text-green-600"
-                              : "text-red-600"
-                          }`}
-                        >
-                          {isValidating
-                            ? "Validating..."
-                            : rubricValidation.isValid
-                            ? `Valid rubric with ${rubricValidation.rubricCount} items`
-                            : "Invalid rubric format"}
-                        </span>
-                      </div>
-                      {!isValidating &&
-                        !rubricValidation.isValid &&
-                        rubricValidation.errors.length > 0 && (
-                          <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md p-3">
-                            <ul className="text-sm text-red-600 space-y-1">
-                              {rubricValidation.errors.map((error, index) => (
-                                <li key={index}>• {error}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             </div>
           </div>
 
-          {/* Submit Section */}
+          {/* Submit Section without complex validation state */}
           <div className="flex items-center justify-between pt-6 border-t border-border/50">
             <Button
               type="button"
@@ -583,7 +453,7 @@ export default function RubricV1Page() {
 
             <Button
               type="submit"
-              disabled={isSubmitting || !rubricValidation.isValid}
+              disabled={isSubmitting}
               className="min-w-[160px]"
             >
               {isSubmitting ? (
