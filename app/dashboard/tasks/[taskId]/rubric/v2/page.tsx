@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { debounce } from "lodash";
 
 import {
   Card,
@@ -27,9 +26,9 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   ArrowLeft,
-  CheckCircle,
   AlertCircle,
   Edit,
   Loader2,
@@ -49,7 +48,6 @@ import {
   getStatusDisplayInfo,
 } from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 export default function RubricV2Page() {
@@ -58,14 +56,8 @@ export default function RubricV2Page() {
   const taskId = params.taskId as string;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isValidating, setIsValidating] = useState(false);
-  const [rubricValidation, setRubricValidation] = useState<{
-    isValid: boolean;
-    errors: string[];
-    rubricCount: number;
-  }>({ isValid: false, errors: [], rubricCount: 0 });
 
-  // Fetch task data
+  // Fetch task data - exactly the same as before
   const {
     data: task,
     isLoading: taskLoading,
@@ -94,73 +86,9 @@ export default function RubricV2Page() {
       const initialRubric = task.Rubric_V2 || task.Rubric_V1 || "";
       if (initialRubric && typeof initialRubric === "string") {
         form.setValue("rubricV2", initialRubric);
-        setRubricValidation(validateRubricJSON(initialRubric));
       }
     }
   }, [task, form]);
-
-  // Memoized validation function with caching
-  const validateRubricMemoized = useMemo(() => {
-    const cache = new Map<
-      string,
-      { isValid: boolean; errors: string[]; rubricCount: number }
-    >();
-
-    return (value: string) => {
-      // Check cache first
-      if (cache.has(value)) {
-        return cache.get(value)!;
-      }
-
-      // Validate and cache result
-      const result = validateRubricJSON(value);
-      cache.set(value, result);
-
-      // Limit cache size to prevent memory leaks
-      if (cache.size > 50) {
-        const firstKey = cache.keys().next().value;
-        if (firstKey) cache.delete(firstKey);
-      }
-
-      return result;
-    };
-  }, []);
-
-  // Debounced validation function
-  const debouncedValidation = useMemo(
-    () =>
-      debounce((value: string) => {
-        setIsValidating(true);
-
-        if (!value || value.trim().length === 0) {
-          setRubricValidation({ isValid: false, errors: [], rubricCount: 0 });
-          setIsValidating(false);
-          return;
-        }
-
-        try {
-          const validation = validateRubricMemoized(value);
-          setRubricValidation(validation);
-        } catch (error) {
-          console.error("Validation error:", error);
-          setRubricValidation({
-            isValid: false,
-            errors: ["Validation failed"],
-            rubricCount: 0,
-          });
-        } finally {
-          setIsValidating(false);
-        }
-      }, 500), // 500ms delay
-    [validateRubricMemoized]
-  );
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      debouncedValidation.cancel();
-    };
-  }, [debouncedValidation]);
 
   // Mutation for updating V2 rubric
   const updateRubricV2Mutation = api.tasks.updateRubricV2.useMutation({
@@ -184,32 +112,15 @@ export default function RubricV2Page() {
   const loadV1Rubric = () => {
     if (task?.Rubric_V1 && typeof task.Rubric_V1 === "string") {
       form.setValue("rubricV2", task.Rubric_V1);
-      setRubricValidation(validateRubricJSON(task.Rubric_V1));
       toast.success("V1 rubric loaded as starting point");
     } else {
       toast.error("No V1 rubric found to load");
     }
   };
 
-  // Handle rubric change with debouncing
-  const handleRubricChange = (value: string) => {
-    // For empty values, validate immediately for better UX
-    if (!value || value.trim().length === 0) {
-      setRubricValidation({ isValid: false, errors: [], rubricCount: 0 });
-      setIsValidating(false);
-      return false;
-    }
-
-    // Use debounced validation for non-empty values
-    debouncedValidation(value);
-    return true; // Return optimistic result
-  };
-
-  // Form submission
   const onSubmit = async (data: RubricV2Input) => {
     setIsSubmitting(true);
 
-    // Final validation
     const validation = validateRubricJSON(data.rubricV2);
     if (!validation.isValid) {
       setIsSubmitting(false);
@@ -227,6 +138,7 @@ export default function RubricV2Page() {
     }
   };
 
+  //  Loading and error states
   if (taskLoading) {
     return (
       <div className="space-y-6">
@@ -373,7 +285,7 @@ export default function RubricV2Page() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header  */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="icon" onClick={() => router.back()}>
@@ -401,7 +313,7 @@ export default function RubricV2Page() {
         </div>
       </div>
 
-      {/* Misaligned Items Alert - Only show if misaligned items exist */}
+      {/* Misaligned Items Alert */}
       {hasMisalignedItems && (
         <Card className="bg-gradient-to-br from-red-50/50 to-red-100/50 dark:from-red-950/20 dark:to-red-900/20 border-red-200 dark:border-red-800">
           <CardHeader>
@@ -577,7 +489,7 @@ export default function RubricV2Page() {
                           <span className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
                             {index + 1}
                           </span>
-                          <p className="text-sm text-foreground leading-relaxed">
+                          <p className="text-sm wrap-anywhere text-foreground leading-relaxed">
                             {item.question}
                           </p>
                         </div>
@@ -604,7 +516,7 @@ export default function RubricV2Page() {
                       <p className="text-xs text-muted-foreground">
                         Task Prompt
                       </p>
-                      <p className="text-sm text-foreground leading-relaxed mt-1">
+                      <p className="text-sm wrap-anywhere text-foreground leading-relaxed mt-1">
                         {task.Prompt}
                       </p>
                     </div>
@@ -612,7 +524,7 @@ export default function RubricV2Page() {
                 </CardContent>
               </Card>
 
-              {/* V2 Rubric Editor */}
+              {/*   Rubric Editor */}
               <Card className="bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -636,10 +548,6 @@ export default function RubricV2Page() {
                             placeholder='{"rubric_1": "Does the response clearly explain...?", "rubric_2": "Does the response provide specific examples?", ...}'
                             className="min-h-[400px] font-mono text-sm bg-background/50"
                             {...field}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              handleRubricChange(e.target.value);
-                            }}
                           />
                         </FormControl>
                         <FormDescription>
@@ -650,74 +558,12 @@ export default function RubricV2Page() {
                       </FormItem>
                     )}
                   />
-
-                  {/* Validation Status */}
-                  {form.watch("rubricV2") && (
-                    <div className="mt-4 space-y-2">
-                      <div className="flex items-center space-x-2">
-                        {isValidating ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        ) : rubricValidation.isValid ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <AlertCircle className="h-5 w-5 text-red-600" />
-                        )}
-                        <span
-                          className={`text-sm font-medium ${
-                            isValidating
-                              ? "text-muted-foreground"
-                              : rubricValidation.isValid
-                              ? "text-green-600"
-                              : "text-red-600"
-                          }`}
-                        >
-                          {isValidating
-                            ? "Validating..."
-                            : rubricValidation.isValid
-                            ? `Valid V2 rubric with ${rubricValidation.rubricCount} items`
-                            : "Invalid rubric format"}
-                        </span>
-                      </div>
-
-                      {/* Count comparison */}
-                      {!isValidating && rubricValidation.isValid && (
-                        <div className="flex items-center space-x-4 text-xs text-muted-foreground">
-                          <span>V1: {v1RubricItems.length} items</span>
-                          <span>→</span>
-                          <span className="font-medium">
-                            V2: {rubricValidation.rubricCount} items
-                            {rubricValidation.rubricCount >
-                              v1RubricItems.length && (
-                              <span className="text-green-600 ml-1">
-                                (+
-                                {rubricValidation.rubricCount -
-                                  v1RubricItems.length}
-                                )
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      )}
-
-                      {!isValidating &&
-                        !rubricValidation.isValid &&
-                        rubricValidation.errors.length > 0 && (
-                          <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md p-3">
-                            <ul className="text-sm text-red-600 space-y-1">
-                              {rubricValidation.errors.map((error, index) => (
-                                <li key={index}>• {error}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             </div>
           </div>
 
-          {/* Submit Section */}
+          {/* Submit Section*/}
           <div className="flex items-center justify-between pt-6 border-t border-border/50">
             <Button
               type="button"
@@ -731,7 +577,7 @@ export default function RubricV2Page() {
 
             <Button
               type="submit"
-              disabled={isSubmitting || !rubricValidation.isValid}
+              disabled={isSubmitting}
               className="min-w-[200px]"
             >
               {isSubmitting ? (
