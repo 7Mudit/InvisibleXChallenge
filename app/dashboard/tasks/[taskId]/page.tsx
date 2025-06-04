@@ -312,7 +312,7 @@ export default function TaskDetailsPage() {
                 {task.TaskID}
               </h1>
               <Badge className={statusInfo.color} variant="outline">
-                {statusInfo.label}
+                {nextStatus}
               </Badge>
               {sectorInfo && (
                 <div className="flex items-center space-x-2 text-sm text-muted-foreground">

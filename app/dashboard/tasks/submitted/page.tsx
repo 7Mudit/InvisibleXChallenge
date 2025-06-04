@@ -286,7 +286,7 @@ export default function SubmittedTasksPage() {
                                     {task.TaskID}
                                   </h3>
                                   <Badge className={statusInfo.color}>
-                                    {statusInfo.label}
+                                    {nextAction.step}
                                   </Badge>
                                 </div>
                                 <div className="flex items-center space-x-4 text-sm text-muted-foreground">
