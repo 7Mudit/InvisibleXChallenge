@@ -39,20 +39,19 @@ export function OperatorDashboard() {
       (task) => task.Status === "Completed"
     ).length;
 
-    // Tasks that need active user work
+    // Tasks that need active user work (rubric creation phase)
     const needingAttention = userTasks.filter((task) =>
-      [
-        "Task_Creation",
-        "Rubric_V1",
-        "Rubric_V2",
-        "Human_Eval_Gemini",
-        "Human_Eval_GPT",
-      ].includes(task.Status)
+      ["Task_Creation", "Rubric_V1", "Rubric_V2"].includes(task.Status)
     ).length;
 
-    // Tasks currently in model evaluation phase
+    // Tasks currently in evaluation phase (both human and model evaluation)
     const inEvaluation = userTasks.filter((task) =>
-      ["Model_Eval_Gemini", "Model_Eval_GPT"].includes(task.Status)
+      [
+        "Human_Eval_Gemini",
+        "Model_Eval_Gemini",
+        "Human_Eval_GPT",
+        "Model_Eval_GPT",
+      ].includes(task.Status)
     ).length;
 
     const completionRate =
