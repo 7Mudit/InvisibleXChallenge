@@ -17,6 +17,7 @@ import {
   calculateAlignment,
   validateRubricJSON,
   validateEvaluationScores,
+  getStatusDisplayInfo,
 } from "@/lib/schemas/task";
 import { generateTaskId } from "@/lib/utils/task-utils";
 import { clerkClient } from "@clerk/nextjs/server";
@@ -52,6 +53,30 @@ export const tasksRouter = router({
           });
         }
 
+        console.log(
+          "Checking for existing incomplete tasks for user:",
+          userEmail
+        );
+
+        const existingTasks = await ctx.airtable.tasksTable
+          .select({
+            filterByFormula: `AND({TrainerEmail} = '${userEmail}', {Status} != 'Completed')`,
+            maxRecords: 1,
+          })
+          .all();
+
+        // If user has any incomplete tasks, prevent new task creation
+        if (existingTasks.length > 0) {
+          const incompleteTask = existingTasks[0];
+          const taskStatus = getStatusDisplayInfo(incompleteTask.fields.Status);
+
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `INCOMPLETE_TASK_EXISTS:${incompleteTask.fields.TaskID}:${incompleteTask.fields.Status}:${taskStatus.label}`,
+          });
+        }
+
+        console.log("No incomplete tasks found, proceeding with task creation");
         const serverData = addServerFields(input, userEmail);
 
         try {
@@ -109,6 +134,10 @@ export const tasksRouter = router({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error("Task creation failed:", error);
+
+        if (error instanceof TRPCError) {
+          throw error;
+        }
 
         if (
           error.error === "INVALID_VALUE_FOR_COLUMN" ||
