@@ -36,15 +36,19 @@ import {
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
-import { getStatusDisplayInfo } from "@/lib/schemas/task";
+import {
+  getStatusDisplayInfo,
+  getCurrentRubricVersionName,
+  AirtableTaskRecord,
+} from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { cn } from "@/lib/utils";
 
-interface RubricQuestion {
-  key: string;
-  question: string;
-  number: number;
-}
+// Import our reusable utilities
+import {
+  parseCurrentRubricQuestions,
+  type RubricQuestion,
+} from "@/lib/utils/evaluation-utils";
 
 interface EvaluationResult {
   question: string;
@@ -162,26 +166,11 @@ export default function TaskResultsPage() {
     );
   }
 
-  // Parse evaluation data
-  const parseRubricQuestions = (): RubricQuestion[] => {
-    if (!task.Rubric_V2) return [];
-    try {
-      if (typeof task.Rubric_V2 === "string") {
-        const rubric = JSON.parse(task.Rubric_V2);
-        return Object.entries(rubric)
-          .filter(([key]) => key.startsWith("rubric_"))
-          .map(([key, question]) => ({
-            key,
-            question: String(question),
-            number: parseInt(key.replace("rubric_", "")),
-          }))
-          .sort((a, b) => a.number - b.number);
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  };
+  // Parse evaluation data using dynamic utilities
+  const rubricQuestions = parseCurrentRubricQuestions(
+    task as AirtableTaskRecord
+  );
+  const versionName = getCurrentRubricVersionName(task as AirtableTaskRecord);
 
   const parseEvaluationResults = (
     humanScores: string,
@@ -203,7 +192,6 @@ export default function TaskResultsPage() {
     }
   };
 
-  const rubricQuestions = parseRubricQuestions();
   const geminiResults =
     task.Human_Eval_Gemini && task.Model_Eval_Gemini
       ? parseEvaluationResults(
@@ -235,6 +223,7 @@ export default function TaskResultsPage() {
       created: task.Created,
       sector: task.ProfessionalSector,
       prompt: task.Prompt,
+      rubricVersion: versionName,
       geminiAlignment: geminiAlignment,
       gptAlignment: gptAlignment,
       averageAlignment: averageAlignment,
@@ -270,11 +259,17 @@ export default function TaskResultsPage() {
                 Evaluation Results
               </h1>
               <Badge
-                className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                 variant="outline"
+                className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
               >
                 <Trophy className="w-3 h-3 mr-1" />
                 Completed
+              </Badge>
+              <Badge
+                variant="outline"
+                className="text-purple-600 border-purple-600"
+              >
+                {versionName} Rubric
               </Badge>
             </div>
             <div className="flex items-center space-x-4 text-sm text-muted-foreground">
@@ -337,6 +332,10 @@ export default function TaskResultsPage() {
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
+                  <span>Rubric Version</span>
+                  <span className="font-medium">{versionName}</span>
+                </div>
+                <div className="flex justify-between text-sm">
                   <span>Rubric Items</span>
                   <span className="font-medium">{rubricQuestions.length}</span>
                 </div>
@@ -356,7 +355,7 @@ export default function TaskResultsPage() {
         </Card>
 
         {/* Gemini Results */}
-        <Card className="bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
+        <Card className="border-green-200 dark:border-green-800">
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Bot className="h-5 w-5 text-green-600" />
@@ -460,7 +459,8 @@ export default function TaskResultsPage() {
             <span>Detailed Analysis</span>
           </CardTitle>
           <CardDescription>
-            Compare AI responses and view detailed rubric evaluation results
+            Compare AI responses and view detailed {versionName} rubric
+            evaluation results
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -474,7 +474,7 @@ export default function TaskResultsPage() {
             <TabsContent value="comparison" className="space-y-6">
               <div className="grid gap-6 lg:grid-cols-2">
                 {/* Gemini Response */}
-                <Card className="bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
+                <Card className="border-green-200 dark:border-green-800">
                   <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
                       <Bot className="h-5 w-5 text-green-600" />
@@ -489,7 +489,7 @@ export default function TaskResultsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="prose dark:prose-invert max-w-none text-sm">
-                      <div className="bg-background/50 p-4 rounded-lg border border-border/30 max-h-64 overflow-y-auto">
+                      <div className="bg-background/50 p-4 rounded-lg border border-border/30 max-h-64 custom-scrollbar overflow-y-auto">
                         <ReactMarkdown>{task.GeminiResponse}</ReactMarkdown>
                       </div>
                     </div>
@@ -512,7 +512,7 @@ export default function TaskResultsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="prose dark:prose-invert max-w-none text-sm">
-                      <div className="bg-background/50 p-4 rounded-lg border border-border/30 max-h-64 overflow-y-auto">
+                      <div className="bg-background/50 p-4 custom-scrollbar  rounded-lg border border-border/30 max-h-64 overflow-y-auto">
                         <ReactMarkdown>{task.GPTResponse}</ReactMarkdown>
                       </div>
                     </div>
@@ -527,6 +527,9 @@ export default function TaskResultsPage() {
                     <Target className="h-5 w-5 text-blue-600" />
                     <span>Alignment Comparison</span>
                   </CardTitle>
+                  <CardDescription>
+                    Comparison using {versionName} rubric evaluation
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
@@ -571,7 +574,7 @@ export default function TaskResultsPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold">
-                    Gemini Evaluation Breakdown
+                    Gemini Evaluation Breakdown ({versionName})
                   </h3>
                   <Badge
                     className="text-green-600 border-green-600"
@@ -663,7 +666,7 @@ export default function TaskResultsPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold">
-                    GPT Evaluation Breakdown
+                    GPT Evaluation Breakdown ({versionName})
                   </h3>
                   <Badge
                     className="text-orange-600 border-orange-600"

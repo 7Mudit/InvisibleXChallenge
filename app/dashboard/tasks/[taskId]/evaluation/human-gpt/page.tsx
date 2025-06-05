@@ -32,18 +32,21 @@ import {
   Lightbulb,
   CheckCircle,
   AlertTriangle,
+  Edit,
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
-import { getStatusDisplayInfo } from "@/lib/schemas/task";
+import { getStatusDisplayInfo, AirtableTaskRecord } from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { cn } from "@/lib/utils";
 
-interface RubricQuestion {
-  key: string;
-  question: string;
-  number: number;
-}
+// Import our reusable utilities
+import {
+  parseCurrentRubricQuestions,
+  getEvaluationPrerequisites,
+  loadExistingEvaluationScores,
+  type RubricQuestion,
+} from "@/lib/utils/evaluation-utils";
 
 interface HumanEvalFormData {
   taskId: string;
@@ -80,41 +83,19 @@ export default function HumanEvalGPTPage() {
     },
   });
 
-  // Parse V2 rubric and load existing evaluations
+  // Parse current rubric version and load existing evaluations
   useEffect(() => {
-    if (task?.Rubric_V2 && typeof task.Rubric_V2 === "string") {
-      try {
-        const rubric = JSON.parse(task.Rubric_V2);
-        const questions: RubricQuestion[] = Object.entries(rubric)
-          .filter(([key]) => key.startsWith("rubric_"))
-          .map(([key, question]) => ({
-            key,
-            question: String(question),
-            number: parseInt(key.replace("rubric_", "")),
-          }))
-          .sort((a, b) => a.number - b.number);
+    if (task) {
+      const questions = parseCurrentRubricQuestions(task as AirtableTaskRecord);
+      setRubricQuestions(questions);
 
-        setRubricQuestions(questions);
-
-        // Load existing human evaluations if available
-        if (task.Human_Eval_GPT && typeof task.Human_Eval_GPT === "string") {
-          try {
-            const existingEvals = JSON.parse(task.Human_Eval_GPT);
-            const evaluations: Record<string, "Yes" | "No"> = {};
-            questions.forEach((q) => {
-              if (existingEvals[q.key]) {
-                evaluations[q.key] = existingEvals[q.key];
-              }
-            });
-            form.setValue("evaluations", evaluations);
-          } catch (error) {
-            console.error("Error parsing existing evaluations:", error);
-          }
-        }
-      } catch (error) {
-        console.error("Error parsing V2 rubric:", error);
-        toast.error("Failed to parse V2 rubric");
-      }
+      // Load existing evaluations if available
+      const existingEvals = loadExistingEvaluationScores(
+        task as AirtableTaskRecord,
+        "human-gpt",
+        questions
+      );
+      form.setValue("evaluations", existingEvals);
     }
   }, [task, form]);
 
@@ -175,9 +156,8 @@ export default function HumanEvalGPTPage() {
         taskId: data.taskId,
         humanScores,
       });
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      // Error handling is done in the mutation
+      console.error("Human evaluation submission error:", error);
     }
   };
 
@@ -236,8 +216,11 @@ export default function HumanEvalGPTPage() {
     );
   }
 
-  // Check if task is in correct state (should be Model_Eval_Gemini with ≥80% alignment)
-  if (task.Status !== "Model_Eval_Gemini") {
+  // Check if task is in correct state
+  if (
+    "Model_Eval_Gemini" !== task.Status ||
+    (task.Alignment_Gemini as number) < 80
+  ) {
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -252,19 +235,23 @@ export default function HumanEvalGPTPage() {
         </div>
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Cannot Evaluate GPT Response</AlertTitle>
+          <AlertTitle>Cannot Evaluate Response</AlertTitle>
           <AlertDescription>
-            This task is not ready for GPT evaluation. Current status:{" "}
-            {getStatusDisplayInfo(task.Status).label}. You must complete Gemini
-            evaluation with ≥80% alignment first.
+            This task is not in the correct state for human evaluation. Current
+            status: {getStatusDisplayInfo(task.Status).label}
           </AlertDescription>
         </Alert>
       </div>
     );
   }
 
-  // Check Gemini alignment requirement
-  if (!task.Alignment_Gemini || (task.Alignment_Gemini as number) < 80) {
+  // Check for required prerequisites using dynamic validation
+  const prerequisites = getEvaluationPrerequisites(
+    task as AirtableTaskRecord,
+    "human-gpt"
+  );
+
+  if (prerequisites.missingItems.length > 0) {
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -273,62 +260,41 @@ export default function HumanEvalGPTPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              Gemini Alignment Required
+              Prerequisites Missing
             </h1>
           </div>
         </div>
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Insufficient Gemini Alignment</AlertTitle>
+          <AlertTitle>Cannot Proceed to GPT Evaluation</AlertTitle>
           <AlertDescription>
-            Gemini evaluation alignment is{" "}
-            {task.Alignment_Gemini ? `${task.Alignment_Gemini}%` : "missing"}.
-            You need ≥80% alignment before proceeding to GPT evaluation.
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 ml-2"
-              onClick={() =>
-                router.push(`/dashboard/tasks/${taskId}/rubric/v2`)
-              }
-            >
-              Revise V2 Rubric
-            </Button>
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
-
-  // Check if required data exists
-  if (!task.Rubric_V2) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center space-x-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              V2 Rubric Required
-            </h1>
-          </div>
-        </div>
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Missing V2 Rubric</AlertTitle>
-          <AlertDescription>
-            You need to create a V2 rubric before starting GPT evaluation.
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 ml-2"
-              onClick={() =>
-                router.push(`/dashboard/tasks/${taskId}/rubric/v2`)
-              }
-            >
-              Create V2 Rubric
-            </Button>
+            <div className="space-y-2">
+              <p>Missing requirements:</p>
+              <ul className="list-disc list-inside space-y-1">
+                {prerequisites.missingItems.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  if (!prerequisites.hasAlignment) {
+                    router.push(`/dashboard/tasks/${taskId}/rubric/enhance`);
+                  } else {
+                    router.push(
+                      `/dashboard/tasks/${taskId}/evaluation/model-gemini`
+                    );
+                  }
+                }}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                {!prerequisites.hasAlignment
+                  ? "Enhance Rubric"
+                  : "Complete Gemini Evaluation"}
+              </Button>
+            </div>
           </AlertDescription>
         </Alert>
       </div>
@@ -363,6 +329,12 @@ export default function HumanEvalGPTPage() {
               >
                 Step 6
               </Badge>
+              <Badge
+                variant="outline"
+                className="text-purple-600 border-purple-600"
+              >
+                Using {prerequisites.versionName}
+              </Badge>
             </div>
             <div className="flex items-center space-x-4 text-sm text-muted-foreground">
               <span>{task.TaskID}</span>
@@ -372,6 +344,10 @@ export default function HumanEvalGPTPage() {
                   <span>{sectorInfo.label}</span>
                 </div>
               )}
+              <div className="flex items-center space-x-1">
+                <FileText className="w-3 h-3" />
+                <span>{rubricQuestions.length} criteria</span>
+              </div>
             </div>
           </div>
         </div>
@@ -384,8 +360,8 @@ export default function HumanEvalGPTPage() {
           Gemini Evaluation Complete
         </AlertTitle>
         <AlertDescription className="text-green-700 dark:text-green-300">
-          {`Gemini alignment: ${task.Alignment_Gemini}% ✓ (≥80% required). Now
-          evaluate the GPT response using the same rubric.`}
+          {`Gemini alignment: ${prerequisites.alignmentValue}% ✓ (≥80% required). Now
+          evaluate the GPT response using the same ${prerequisites.versionName} rubric.`}
         </AlertDescription>
       </Alert>
 
@@ -427,7 +403,9 @@ export default function HumanEvalGPTPage() {
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
                 1
               </span>
-              <span>Read each rubric question carefully</span>
+              <span>
+                Read each {prerequisites.versionName} rubric question carefully
+              </span>
             </div>
             <div className="flex items-start space-x-2">
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
@@ -468,7 +446,7 @@ export default function HumanEvalGPTPage() {
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {completedCount} of {rubricQuestions.length} questions
-                  answered
+                  answered using {prerequisites.versionName}
                 </p>
               </div>
               <div className="text-right">
@@ -496,7 +474,8 @@ export default function HumanEvalGPTPage() {
                   <span>GPT Response</span>
                 </CardTitle>
                 <CardDescription>
-                  The GPT AI response you&apos;re evaluating
+                  The GPT AI response you&apos;re evaluating with{" "}
+                  {prerequisites.versionName}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -563,7 +542,7 @@ export default function HumanEvalGPTPage() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <User className="h-5 w-5 text-blue-600" />
-                  <span>Evaluation Questions</span>
+                  <span>{prerequisites.versionName} Evaluation Questions</span>
                 </CardTitle>
                 <CardDescription>
                   Answer each question based on the GPT response
@@ -664,7 +643,7 @@ export default function HumanEvalGPTPage() {
                 <div className="flex items-center space-x-4">
                   <div className="text-sm text-muted-foreground">
                     {completedCount}/{rubricQuestions.length} questions
-                    completed
+                    completed using {prerequisites.versionName}
                   </div>
                   <Button
                     type="submit"

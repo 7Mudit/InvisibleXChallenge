@@ -187,7 +187,7 @@ export default function SubmittedTasksPage() {
         }}
         className={
           isCompleted
-            ? "bg-green-50 hover:bg-green-100 text-green-700 border-green-200 dark:bg-green-950/20 dark:hover:bg-green-950/40 dark:text-green-400 dark:border-green-800"
+            ? "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
             : ""
         }
       >
@@ -275,7 +275,8 @@ export default function SubmittedTasksPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-50/80 to-green-100/40 dark:from-green-950/40 dark:to-green-900/20 border-green-200/50 dark:border-green-800/50 hover:shadow-lg transition-all duration-200">
+          {/* Completed tasks card - subtle green styling */}
+          <Card className="border-green-200 dark:border-green-800 hover:shadow-lg transition-all duration-200">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
@@ -286,7 +287,7 @@ export default function SubmittedTasksPage() {
                     {completedTasks.length}
                   </p>
                 </div>
-                <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-full">
+                <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-full border border-green-200 dark:border-green-800">
                   <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
                 </div>
               </div>
@@ -529,11 +530,11 @@ export default function SubmittedTasksPage() {
             </div>
           )}
 
-          {/* Completed Tasks */}
+          {/* Completed Tasks - Subtle Green Styling */}
           {completedTasks.length > 0 && (
             <div className="space-y-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                <div className="p-2 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
                   <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
                 </div>
                 <div>
@@ -555,7 +556,7 @@ export default function SubmittedTasksPage() {
                   return (
                     <Card
                       key={task.id}
-                      className="bg-gradient-to-r from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200/60 dark:border-green-800/60 hover:shadow-lg hover:shadow-green-500/10 transition-all duration-300 cursor-pointer group"
+                      className="border-green-200 dark:border-green-800 hover:shadow-lg hover:shadow-green-500/5 transition-all duration-300 cursor-pointer group bg-card hover:bg-green-50/30 dark:hover:bg-green-950/10"
                       onClick={() =>
                         router.push(`/dashboard/tasks/${task.TaskID}`)
                       }
@@ -564,12 +565,15 @@ export default function SubmittedTasksPage() {
                         <div className="flex items-start justify-between">
                           <div className="space-y-2">
                             <div className="flex items-center space-x-3">
-                              <h3 className="text-lg font-semibold text-foreground group-hover:text-green-700 dark:group-hover:text-green-400 transition-colors">
-                                {task.TaskID}
-                              </h3>
+                              <div className="flex items-center space-x-2">
+                                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                <h3 className="text-lg font-semibold text-foreground group-hover:text-green-700 dark:group-hover:text-green-400 transition-colors">
+                                  {task.TaskID}
+                                </h3>
+                              </div>
                               <Badge
-                                className={statusInfo.color}
                                 variant="outline"
+                                className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
                               >
                                 <Trophy className="w-3 h-3 mr-1" />
                                 {statusInfo.label}
@@ -606,20 +610,18 @@ export default function SubmittedTasksPage() {
                           </p>
                           <div className="space-y-2">
                             <div className="flex items-center justify-between text-sm">
-                              <span className=" font-medium text-green-600 dark:text-green-400">
+                              <span className="font-medium text-green-600 dark:text-green-400">
                                 ✓ Evaluation Complete
                               </span>
                               <div className="flex items-center space-x-2">
-                                <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
                                 <span className="font-semibold text-green-600 dark:text-green-400">
                                   {task.Progress}%
                                 </span>
                               </div>
                             </div>
-                            <Progress
-                              value={task.Progress}
-                              className="h-2 bg-green-100 dark:bg-green-900/20"
-                            />
+                            <div className="w-full bg-green-100 dark:bg-green-900/20 rounded-full h-2">
+                              <div className="bg-green-500 h-2 rounded-full w-full"></div>
+                            </div>
                           </div>
                         </div>
                       </CardContent>

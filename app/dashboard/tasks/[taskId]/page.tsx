@@ -324,7 +324,7 @@ export default function TaskDetailsPage() {
       icon: BarChart3,
       color: "text-emerald-600",
       bgGradient:
-        "from-indigo-50/50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/20",
+        "from-indigo-50/50 to-indigo-100/50 dark:from-indigo-950/20 dark:to-indigo-900/20",
       steps: stepCards.filter((step) => step.category === "evaluation"),
     },
     {
@@ -352,13 +352,11 @@ export default function TaskDetailsPage() {
 
     switch (state) {
       case "completed":
-        return `${baseStyles} bg-gradient-to-br from-green-50/50 to-green-100/50 dark:from-green-950/20 dark:to-green-900/20 border-green-200 dark:border-green-800`;
+        return `${baseStyles} `;
       case "current":
-        return `${baseStyles} bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20 ring-2 ring-primary/20`;
+        return `${baseStyles} `;
       case "needs_revision":
-        return `${baseStyles} bg-gradient-to-br from-red-50/50 to-red-100/50 dark:from-red-950/20 dark:to-red-900/20 border-red-200 dark:border-red-800 ring-2 ring-red/20 ${
-          isIterative ? "animate-pulse" : ""
-        }`;
+        return `${baseStyles}  ${isIterative ? "animate-pulse" : ""}`;
       case "locked":
       default:
         return `${baseStyles} bg-muted/30 border-muted opacity-60`;

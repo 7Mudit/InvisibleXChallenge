@@ -34,19 +34,23 @@ import {
   Target,
   Trophy,
   Flag,
+  Edit,
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
-import { getStatusDisplayInfo } from "@/lib/schemas/task";
+import { getStatusDisplayInfo, AirtableTaskRecord } from "@/lib/schemas/task";
 import { generateRubricCheckerPrompt } from "@/lib/utils/rubric-prompts";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { cn } from "@/lib/utils";
 
-interface RubricQuestion {
-  key: string;
-  question: string;
-  number: number;
-}
+// Import our reusable utilities
+import {
+  parseCurrentRubricQuestions,
+  getEvaluationPrerequisites,
+  loadExistingEvaluationScores,
+  getComparisonScores,
+  type RubricQuestion,
+} from "@/lib/utils/evaluation-utils";
 
 interface ModelEvalFormData {
   taskId: string;
@@ -88,51 +92,26 @@ export default function ModelEvalGPTPage() {
     },
   });
 
-  // Parse V2 rubric and load existing evaluations
+  // Parse current rubric version and load existing evaluations
   useEffect(() => {
-    if (task?.Rubric_V2 && typeof task.Rubric_V2 === "string") {
-      try {
-        const rubric = JSON.parse(task.Rubric_V2);
-        const questions: RubricQuestion[] = Object.entries(rubric)
-          .filter(([key]) => key.startsWith("rubric_"))
-          .map(([key, question]) => ({
-            key,
-            question: String(question),
-            number: parseInt(key.replace("rubric_", "")),
-          }))
-          .sort((a, b) => a.number - b.number);
+    if (task) {
+      const questions = parseCurrentRubricQuestions(task as AirtableTaskRecord);
+      setRubricQuestions(questions);
 
-        setRubricQuestions(questions);
+      // Load human scores for comparison
+      const humanEvals = getComparisonScores(
+        task as AirtableTaskRecord,
+        "model-gpt"
+      );
+      setHumanScores(humanEvals);
 
-        // Load human scores for comparison
-        if (task.Human_Eval_GPT && typeof task.Human_Eval_GPT === "string") {
-          try {
-            const humanEvals = JSON.parse(task.Human_Eval_GPT);
-            setHumanScores(humanEvals);
-          } catch (error) {
-            console.error("Error parsing human evaluations:", error);
-          }
-        }
-
-        // Load existing model evaluations if available
-        if (task.Model_Eval_GPT && typeof task.Model_Eval_GPT === "string") {
-          try {
-            const existingEvals = JSON.parse(task.Model_Eval_GPT);
-            const evaluations: Record<string, "Yes" | "No"> = {};
-            questions.forEach((q) => {
-              if (existingEvals[q.key]) {
-                evaluations[q.key] = existingEvals[q.key];
-              }
-            });
-            form.setValue("evaluations", evaluations);
-          } catch (error) {
-            console.error("Error parsing existing model evaluations:", error);
-          }
-        }
-      } catch (error) {
-        console.error("Error parsing V2 rubric:", error);
-        toast.error("Failed to parse V2 rubric");
-      }
+      // Load existing model evaluations if available
+      const existingEvals = loadExistingEvaluationScores(
+        task as AirtableTaskRecord,
+        "model-gpt",
+        questions
+      );
+      form.setValue("evaluations", existingEvals);
     }
   }, [task, form]);
 
@@ -169,20 +148,21 @@ export default function ModelEvalGPTPage() {
   });
 
   // Generate the checker prompt for GPT
-  const checkerPrompt = task?.Rubric_V2
-    ? generateRubricCheckerPrompt(
-        {
-          Prompt: task.Prompt,
-          GeminiResponse: task.GPTResponse, // Note: passing GPT response for evaluation
-          GPTResponse: task.GeminiResponse, // These are swapped for the GPT evaluation
-        },
-        rubricQuestions.map((q) => ({
-          id: q.key,
-          question: q.question,
-          tag: `criterion_${q.number}`,
-        }))
-      )
-    : "";
+  const checkerPrompt =
+    task && rubricQuestions.length > 0
+      ? generateRubricCheckerPrompt(
+          {
+            Prompt: task.Prompt,
+            GeminiResponse: task.GPTResponse, // Note: passing GPT response for evaluation
+            GPTResponse: task.GeminiResponse, // These are swapped for the GPT evaluation
+          },
+          rubricQuestions.map((q) => ({
+            id: q.key,
+            question: q.question,
+            tag: `criterion_${q.number}`,
+          }))
+        )
+      : "";
 
   // Copy prompt to clipboard
   const copyPromptToClipboard = async () => {
@@ -243,9 +223,8 @@ export default function ModelEvalGPTPage() {
         taskId: data.taskId,
         modelScores,
       });
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      // Error handling is done in the mutation
+      console.error("Model evaluation submission error:", error);
     }
   };
 
@@ -305,7 +284,7 @@ export default function ModelEvalGPTPage() {
   }
 
   // Check if task is in correct state
-  if (!["Human_Eval_GPT", "Model_Eval_GPT"].includes(task.Status)) {
+  if ("Human_Eval_GPT" !== task.Status) {
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -330,8 +309,13 @@ export default function ModelEvalGPTPage() {
     );
   }
 
-  // Check if required data exists
-  if (!task.Rubric_V2 || !task.Human_Eval_GPT) {
+  // Check for required prerequisites using dynamic validation
+  const prerequisites = getEvaluationPrerequisites(
+    task as AirtableTaskRecord,
+    "model-gpt"
+  );
+
+  if (prerequisites.missingItems.length > 0) {
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -348,18 +332,25 @@ export default function ModelEvalGPTPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Missing Required Data</AlertTitle>
           <AlertDescription>
-            You need to complete the V2 rubric and human evaluation for GPT
-            before model evaluation.
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 ml-2"
-              onClick={() =>
-                router.push(`/dashboard/tasks/${taskId}/evaluation/human-gpt`)
-              }
-            >
-              Complete Human Evaluation
-            </Button>
+            <div className="space-y-2">
+              <p>You need to complete the following before model evaluation:</p>
+              <ul className="list-disc list-inside space-y-1">
+                {prerequisites.missingItems.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() =>
+                  router.push(`/dashboard/tasks/${taskId}/evaluation/human-gpt`)
+                }
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Complete Human Evaluation
+              </Button>
+            </div>
           </AlertDescription>
         </Alert>
       </div>
@@ -396,6 +387,12 @@ export default function ModelEvalGPTPage() {
               >
                 Final Step
               </Badge>
+              <Badge
+                variant="outline"
+                className="text-purple-600 border-purple-600"
+              >
+                Using {prerequisites.versionName}
+              </Badge>
             </div>
             <div className="flex items-center space-x-4 text-sm text-muted-foreground">
               <span>{task.TaskID}</span>
@@ -417,8 +414,9 @@ export default function ModelEvalGPTPage() {
           Final Evaluation Step
         </AlertTitle>
         <AlertDescription className="text-green-700 dark:text-green-300">
-          This is the last step! After completing the GPT model evaluation, your
-          task will be marked as complete regardless of alignment score.
+          This is the last step! After completing the GPT model evaluation using{" "}
+          {prerequisites.versionName}, your task will be marked as complete
+          regardless of alignment score.
         </AlertDescription>
       </Alert>
 
@@ -440,7 +438,10 @@ export default function ModelEvalGPTPage() {
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
                 1
               </span>
-              <span>Copy the rubric checker prompt below to your AI tool</span>
+              <span>
+                Copy the {prerequisites.versionName} rubric checker prompt below
+                to your AI tool
+              </span>
             </div>
             <div className="flex items-start space-x-2">
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
@@ -520,7 +521,9 @@ export default function ModelEvalGPTPage() {
             <div className="flex items-center space-x-2">
               <Bot className="h-5 w-5 text-purple-600" />
               <div>
-                <CardTitle>Rubric Checker Prompt</CardTitle>
+                <CardTitle>
+                  {prerequisites.versionName} Rubric Checker Prompt
+                </CardTitle>
                 <CardDescription>
                   Copy this prompt to your AI tool to get GPT model evaluation
                 </CardDescription>
@@ -582,7 +585,7 @@ export default function ModelEvalGPTPage() {
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {completedCount} of {rubricQuestions.length} questions
-                  answered
+                  answered using {prerequisites.versionName}
                 </p>
               </div>
               <div className="text-right">
@@ -608,8 +611,8 @@ export default function ModelEvalGPTPage() {
                 <span>GPT Model Evaluation Input</span>
               </CardTitle>
               <CardDescription>
-                Input the model&apos;s Yes/No responses for each rubric
-                criterion when evaluating the GPT response
+                Input the model&apos;s Yes/No responses for each{" "}
+                {prerequisites.versionName} criterion
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
