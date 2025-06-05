@@ -103,7 +103,9 @@ export default function SubmittedTasksPage() {
 
   // Further categorize in-progress tasks
   const tasksNeedingAttention = inProgressTasks.filter((t) =>
-    ["Task_Creation", "Rubric_V1", "Rubric_V2"].includes(t.Status)
+    ["Task_Creation", "Rubric_V1", "Rubric_V2", "Rubric_Enhancing"].includes(
+      t.Status
+    )
   );
   const tasksInEvaluation = inProgressTasks.filter((t) =>
     [

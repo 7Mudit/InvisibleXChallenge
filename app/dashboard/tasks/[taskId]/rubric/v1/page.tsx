@@ -95,7 +95,7 @@ export default function RubricV1Page() {
         description: data.message,
       });
       setIsSubmitting(false);
-      router.push(`/dashboard/tasks/${taskId}/rubric/v2`);
+      router.push(`/dashboard/tasks/${taskId}/rubric/enhance`);
     },
     onError: (error) => {
       setIsSubmitting(false);

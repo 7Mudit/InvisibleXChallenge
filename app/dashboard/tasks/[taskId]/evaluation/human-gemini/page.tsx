@@ -30,10 +30,16 @@ import {
   ThumbsUp,
   ThumbsDown,
   Lightbulb,
+  Edit,
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
-import { getStatusDisplayInfo } from "@/lib/schemas/task";
+import {
+  getStatusDisplayInfo,
+  getCurrentRubricContent,
+  getCurrentRubricVersionName,
+  AirtableTaskRecord,
+} from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +62,7 @@ export default function HumanEvalGeminiPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [rubricQuestions, setRubricQuestions] = useState<RubricQuestion[]>([]);
   const [completedCount, setCompletedCount] = useState(0);
+  const [currentRubricVersion, setCurrentRubricVersion] = useState<number>(1);
 
   // Fetch task data
   const {
@@ -78,43 +85,52 @@ export default function HumanEvalGeminiPage() {
     },
   });
 
-  // Parse V2 rubric and load existing evaluations
+  // Parse current rubric version and load existing evaluations
   useEffect(() => {
-    if (task?.Rubric_V2 && typeof task.Rubric_V2 === "string") {
-      try {
-        const rubric = JSON.parse(task.Rubric_V2);
-        const questions: RubricQuestion[] = Object.entries(rubric)
-          .filter(([key]) => key.startsWith("rubric_"))
-          .map(([key, question]) => ({
-            key,
-            question: String(question),
-            number: parseInt(key.replace("rubric_", "")),
-          }))
-          .sort((a, b) => a.number - b.number);
+    if (task) {
+      // Get current rubric content dynamically
+      const currentRubricContent = getCurrentRubricContent(
+        task as AirtableTaskRecord
+      );
+      const version = task.Current_Rubric_Version || 1;
+      setCurrentRubricVersion(version);
 
-        setRubricQuestions(questions);
+      if (currentRubricContent && typeof currentRubricContent === "string") {
+        try {
+          const rubric = JSON.parse(currentRubricContent);
+          const questions: RubricQuestion[] = Object.entries(rubric)
+            .filter(([key]) => key.startsWith("rubric_"))
+            .map(([key, question]) => ({
+              key,
+              question: String(question),
+              number: parseInt(key.replace("rubric_", "")),
+            }))
+            .sort((a, b) => a.number - b.number);
 
-        // Load existing human evaluations if available
-        if (
-          task.Human_Eval_Gemini &&
-          typeof task.Human_Eval_Gemini === "string"
-        ) {
-          try {
-            const existingEvals = JSON.parse(task.Human_Eval_Gemini);
-            const evaluations: Record<string, "Yes" | "No"> = {};
-            questions.forEach((q) => {
-              if (existingEvals[q.key]) {
-                evaluations[q.key] = existingEvals[q.key];
-              }
-            });
-            form.setValue("evaluations", evaluations);
-          } catch (error) {
-            console.error("Error parsing existing evaluations:", error);
+          setRubricQuestions(questions);
+
+          // Load existing human evaluations if available
+          if (
+            task.Human_Eval_Gemini &&
+            typeof task.Human_Eval_Gemini === "string"
+          ) {
+            try {
+              const existingEvals = JSON.parse(task.Human_Eval_Gemini);
+              const evaluations: Record<string, "Yes" | "No"> = {};
+              questions.forEach((q) => {
+                if (existingEvals[q.key]) {
+                  evaluations[q.key] = existingEvals[q.key];
+                }
+              });
+              form.setValue("evaluations", evaluations);
+            } catch (error) {
+              console.error("Error parsing existing evaluations:", error);
+            }
           }
+        } catch (error) {
+          console.error("Error parsing current rubric:", error);
+          toast.error("Failed to parse current rubric");
         }
-      } catch (error) {
-        console.error("Error parsing V2 rubric:", error);
-        toast.error("Failed to parse V2 rubric");
       }
     }
   }, [task, form]);
@@ -124,22 +140,13 @@ export default function HumanEvalGeminiPage() {
   useEffect(() => {
     if (!rubricQuestions.length) return;
 
-    // Count completed evaluations more reliably
     const evaluations = allFormValues.evaluations || {};
     const completedAnswers = rubricQuestions.filter((q) => {
       const answer = evaluations[q.key];
       return answer === "Yes" || answer === "No";
     });
 
-    const newCount = completedAnswers.length;
-    console.log("Progress tracking:", {
-      totalQuestions: rubricQuestions.length,
-      completedAnswers: completedAnswers.length,
-      evaluations,
-      questionKeys: rubricQuestions.map((q) => q.key),
-    });
-
-    setCompletedCount(newCount);
+    setCompletedCount(completedAnswers.length);
   }, [allFormValues, rubricQuestions]);
 
   // Mutation for updating human evaluation
@@ -185,9 +192,9 @@ export default function HumanEvalGeminiPage() {
         taskId: data.taskId,
         humanScores,
       });
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       // Error handling is done in the mutation
+      console.error("Human evaluation submission error:", error);
     }
   };
 
@@ -247,7 +254,11 @@ export default function HumanEvalGeminiPage() {
   }
 
   // Check if task is in correct state
-  if (!["Rubric_V2", "Human_Eval_Gemini"].includes(task.Status)) {
+  if (
+    !["Rubric_V2", "Rubric_Enhancing", "Human_Eval_Gemini"].includes(
+      task.Status
+    )
+  ) {
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -272,8 +283,13 @@ export default function HumanEvalGeminiPage() {
     );
   }
 
-  // Check if V2 rubric exists
-  if (!task.Rubric_V2) {
+  // Check if current rubric exists (dynamic version)
+  const currentRubricContent = getCurrentRubricContent(
+    task as AirtableTaskRecord
+  );
+  if (!currentRubricContent) {
+    const versionName = getCurrentRubricVersionName(task as AirtableTaskRecord);
+
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -282,24 +298,33 @@ export default function HumanEvalGeminiPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              V2 Rubric Required
+              Rubric Required
             </h1>
           </div>
         </div>
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Missing V2 Rubric</AlertTitle>
+          <AlertTitle>Missing Current Rubric</AlertTitle>
           <AlertDescription>
-            You need to create a V2 rubric before starting human evaluation.
+            You need to create {versionName} rubric before starting human
+            evaluation.
             <Button
               variant="outline"
               size="sm"
               className="mt-2 ml-2"
-              onClick={() =>
-                router.push(`/dashboard/tasks/${taskId}/rubric/v2`)
-              }
+              onClick={() => {
+                // Determine which rubric route to redirect to
+                const shouldCreateV2 = task.Status === "Rubric_V1";
+                const route = shouldCreateV2
+                  ? `/dashboard/tasks/${taskId}/rubric/enhance`
+                  : `/dashboard/tasks/${taskId}/rubric/v1`;
+                router.push(route);
+              }}
             >
-              Create V2 Rubric
+              <Edit className="h-4 w-4 mr-2" />
+              {task.Status === "Rubric_V1"
+                ? "Create V2 Rubric"
+                : "Create Rubric"}
             </Button>
           </AlertDescription>
         </Alert>
@@ -315,6 +340,8 @@ export default function HumanEvalGeminiPage() {
     rubricQuestions.length > 0
       ? Math.round((completedCount / rubricQuestions.length) * 100)
       : 0;
+
+  const versionName = getCurrentRubricVersionName(task as AirtableTaskRecord);
 
   return (
     <div className="space-y-6 pb-6">
@@ -335,6 +362,12 @@ export default function HumanEvalGeminiPage() {
               >
                 Step 4
               </Badge>
+              <Badge
+                variant="outline"
+                className="text-purple-600 border-purple-600"
+              >
+                Using {versionName}
+              </Badge>
             </div>
             <div className="flex items-center space-x-4 text-sm text-muted-foreground">
               <span>{task.TaskID}</span>
@@ -344,10 +377,32 @@ export default function HumanEvalGeminiPage() {
                   <span>{sectorInfo.label}</span>
                 </div>
               )}
+              <div className="flex items-center space-x-1">
+                <FileText className="w-3 h-3" />
+                <span>{rubricQuestions.length} criteria</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Current Rubric Info */}
+      <Alert className="bg-gradient-to-r from-purple-50/50 to-indigo-50/50 dark:from-purple-950/20 dark:to-indigo-950/20 border-purple-200 dark:border-purple-800">
+        <FileText className="h-4 w-4 text-purple-600" />
+        <AlertTitle className="text-purple-800 dark:text-purple-400">
+          Evaluating with {versionName} Rubric
+        </AlertTitle>
+        <AlertDescription className="text-purple-700 dark:text-purple-300">
+          You&apos;re evaluating the Gemini response using the current{" "}
+          {versionName} rubric with {rubricQuestions.length} evaluation
+          criteria.
+          {currentRubricVersion > 2 && (
+            <span className="block mt-1 font-medium">
+              This is an enhanced version created to improve alignment accuracy.
+            </span>
+          )}
+        </AlertDescription>
+      </Alert>
 
       {/* Top Section: Task Prompt and Instructions */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -387,7 +442,7 @@ export default function HumanEvalGeminiPage() {
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
                 1
               </span>
-              <span>Read each rubric question carefully</span>
+              <span>Read each {versionName} rubric question carefully</span>
             </div>
             <div className="flex items-start space-x-2">
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
@@ -454,15 +509,14 @@ export default function HumanEvalGeminiPage() {
                   <span>Gemini Response</span>
                 </CardTitle>
                 <CardDescription>
-                  The AI response you&apos;re evaluating
+                  The AI response you&apos;re evaluating with {versionName}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="prose dark:prose-invert max-w-none text-sm">
-                  <div className="bg-background/50 custom-scrollbar p-4 rounded-lg border border-border/30">
+                  <div className="bg-background/50 p-4 rounded-lg border border-border/30">
                     <ReactMarkdown
                       components={{
-                        // Custom markdown components for better styling
                         h1: ({ children }) => (
                           <h1 className="text-lg font-bold mb-2">{children}</h1>
                         ),
@@ -521,91 +575,92 @@ export default function HumanEvalGeminiPage() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <User className="h-5 w-5 text-blue-600" />
-                  <span>Evaluation Questions</span>
+                  <span>{versionName} Criteria</span>
                 </CardTitle>
                 <CardDescription>
                   Answer each question based on the Gemini response
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {rubricQuestions.map((question, index) => {
-                  const currentValue = form.watch(
-                    `evaluations.${question.key}`
-                  );
+                <div className="space-y-4  custom-scrollbar">
+                  {rubricQuestions.map((question, index) => {
+                    const currentValue = form.watch(
+                      `evaluations.${question.key}`
+                    );
 
-                  return (
-                    <div
-                      key={question.key}
-                      className="space-y-3 p-4 rounded-lg border border-border/30 bg-background/30"
-                    >
-                      <div className="flex items-start space-x-3">
-                        <span className="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
-                          {index + 1}
-                        </span>
-                        <p className="text-sm font-medium leading-relaxed text-foreground">
-                          {question.question}
-                        </p>
-                      </div>
+                    return (
+                      <div
+                        key={question.key}
+                        className="space-y-3 p-4 rounded-lg border border-border/30 bg-background/30"
+                      >
+                        <div className="flex items-start space-x-3">
+                          <span className="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
+                            {index + 1}
+                          </span>
+                          <p className="text-sm font-medium leading-relaxed text-foreground">
+                            {question.question}
+                          </p>
+                        </div>
 
-                      <div className="ml-9">
-                        <RadioGroup
-                          value={currentValue || ""}
-                          onValueChange={(value) => {
-                            form.setValue(
-                              `evaluations.${question.key}`,
-                              value as "Yes" | "No"
-                            );
-                            // Force re-render to update progress immediately
-                            form.trigger(`evaluations.${question.key}`);
-                          }}
-                          className="flex items-center space-x-6"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem
-                              value="Yes"
-                              id={`${question.key}-yes`}
-                              className="text-green-600 border-green-600"
-                            />
-                            <Label
-                              htmlFor={`${question.key}-yes`}
-                              className={cn(
-                                "flex items-center space-x-2 cursor-pointer text-sm",
-                                currentValue === "Yes" &&
-                                  "text-green-600 font-medium"
-                              )}
-                            >
-                              <ThumbsUp className="h-4 w-4" />
-                              <span>Yes</span>
-                            </Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem
-                              value="No"
-                              id={`${question.key}-no`}
-                              className="text-red-600 border-red-600"
-                            />
-                            <Label
-                              htmlFor={`${question.key}-no`}
-                              className={cn(
-                                "flex items-center space-x-2 cursor-pointer text-sm",
-                                currentValue === "No" &&
-                                  "text-red-600 font-medium"
-                              )}
-                            >
-                              <ThumbsDown className="h-4 w-4" />
-                              <span>No</span>
-                            </Label>
-                          </div>
-                        </RadioGroup>
+                        <div className="ml-9">
+                          <RadioGroup
+                            value={currentValue || ""}
+                            onValueChange={(value) => {
+                              form.setValue(
+                                `evaluations.${question.key}`,
+                                value as "Yes" | "No"
+                              );
+                              form.trigger(`evaluations.${question.key}`);
+                            }}
+                            className="flex items-center space-x-6"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem
+                                value="Yes"
+                                id={`${question.key}-yes`}
+                                className="text-green-600 border-green-600"
+                              />
+                              <Label
+                                htmlFor={`${question.key}-yes`}
+                                className={cn(
+                                  "flex items-center space-x-2 cursor-pointer text-sm",
+                                  currentValue === "Yes" &&
+                                    "text-green-600 font-medium"
+                                )}
+                              >
+                                <ThumbsUp className="h-4 w-4" />
+                                <span>Yes</span>
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem
+                                value="No"
+                                id={`${question.key}-no`}
+                                className="text-red-600 border-red-600"
+                              />
+                              <Label
+                                htmlFor={`${question.key}-no`}
+                                className={cn(
+                                  "flex items-center space-x-2 cursor-pointer text-sm",
+                                  currentValue === "No" &&
+                                    "text-red-600 font-medium"
+                                )}
+                              >
+                                <ThumbsDown className="h-4 w-4" />
+                                <span>No</span>
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Submit Section - FIXED: Proper spacing */}
+          {/* Submit Section */}
           <Card className="bg-background/80 border-border/50">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">

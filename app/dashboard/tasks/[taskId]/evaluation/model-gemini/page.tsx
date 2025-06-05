@@ -13,7 +13,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,19 +33,28 @@ import {
   BarChart3,
   AlertTriangle,
   Target,
+  Edit,
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
-import { getStatusDisplayInfo } from "@/lib/schemas/task";
+import {
+  getStatusDisplayInfo,
+  getCurrentRubricContent,
+  AirtableTaskRecord,
+} from "@/lib/schemas/task";
 import { generateRubricCheckerPrompt } from "@/lib/utils/rubric-prompts";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { cn } from "@/lib/utils";
 
-interface RubricQuestion {
-  key: string;
-  question: string;
-  number: number;
-}
+// Import our reusable utilities
+import {
+  parseCurrentRubricQuestions,
+  getEvaluationPrerequisites,
+  loadExistingEvaluationScores,
+  getComparisonScores,
+  type RubricQuestion,
+} from "@/lib/utils/evaluation-utils";
+import { EvaluationHeader } from "@/components/ui/RubricVersionBadge";
 
 interface ModelEvalFormData {
   taskId: string;
@@ -88,57 +96,26 @@ export default function ModelEvalGeminiPage() {
     },
   });
 
-  // Parse V2 rubric and load existing evaluations
+  // Parse current rubric version and load existing evaluations
   useEffect(() => {
-    if (task?.Rubric_V2 && typeof task.Rubric_V2 === "string") {
-      try {
-        const rubric = JSON.parse(task.Rubric_V2);
-        const questions: RubricQuestion[] = Object.entries(rubric)
-          .filter(([key]) => key.startsWith("rubric_"))
-          .map(([key, question]) => ({
-            key,
-            question: String(question),
-            number: parseInt(key.replace("rubric_", "")),
-          }))
-          .sort((a, b) => a.number - b.number);
+    if (task) {
+      const questions = parseCurrentRubricQuestions(task as AirtableTaskRecord);
+      setRubricQuestions(questions);
 
-        setRubricQuestions(questions);
+      // Load human scores for comparison
+      const humanEvals = getComparisonScores(
+        task as AirtableTaskRecord,
+        "model-gemini"
+      );
+      setHumanScores(humanEvals);
 
-        // Load human scores for comparison
-        if (
-          task.Human_Eval_Gemini &&
-          typeof task.Human_Eval_Gemini === "string"
-        ) {
-          try {
-            const humanEvals = JSON.parse(task.Human_Eval_Gemini);
-            setHumanScores(humanEvals);
-          } catch (error) {
-            console.error("Error parsing human evaluations:", error);
-          }
-        }
-
-        // Load existing model evaluations if available
-        if (
-          task.Model_Eval_Gemini &&
-          typeof task.Model_Eval_Gemini === "string"
-        ) {
-          try {
-            const existingEvals = JSON.parse(task.Model_Eval_Gemini);
-            const evaluations: Record<string, "Yes" | "No"> = {};
-            questions.forEach((q) => {
-              if (existingEvals[q.key]) {
-                evaluations[q.key] = existingEvals[q.key];
-              }
-            });
-            form.setValue("evaluations", evaluations);
-          } catch (error) {
-            console.error("Error parsing existing model evaluations:", error);
-          }
-        }
-      } catch (error) {
-        console.error("Error parsing V2 rubric:", error);
-        toast.error("Failed to parse V2 rubric");
-      }
+      // Load existing model evaluations if available
+      const existingEvals = loadExistingEvaluationScores(
+        task as AirtableTaskRecord,
+        "model-gemini",
+        questions
+      );
+      form.setValue("evaluations", existingEvals);
     }
   }, [task, form]);
 
@@ -167,9 +144,9 @@ export default function ModelEvalGeminiPage() {
       // Handle routing based on alignment
       if (data.needsRevision) {
         toast.warning(`Alignment is ${data.alignment}% - revision required`, {
-          description: "Redirecting to V2 rubric for improvements...",
+          description: "Redirecting to rubric enhancement...",
         });
-        router.push(`/dashboard/tasks/${taskId}/rubric/v2`);
+        router.push(`/dashboard/tasks/${taskId}/rubric/enhance`);
       } else {
         toast.success(`Great alignment: ${data.alignment}%!`, {
           description: "Proceeding to GPT evaluation...",
@@ -186,20 +163,21 @@ export default function ModelEvalGeminiPage() {
   });
 
   // Generate the checker prompt
-  const checkerPrompt = task?.Rubric_V2
-    ? generateRubricCheckerPrompt(
-        {
-          Prompt: task.Prompt,
-          GeminiResponse: task.GeminiResponse,
-          GPTResponse: task.GPTResponse,
-        },
-        rubricQuestions.map((q) => ({
-          id: q.key,
-          question: q.question,
-          tag: `criterion_${q.number}`,
-        }))
-      )
-    : "";
+  const checkerPrompt =
+    task && getCurrentRubricContent(task as AirtableTaskRecord)
+      ? generateRubricCheckerPrompt(
+          {
+            Prompt: task.Prompt,
+            GeminiResponse: task.GeminiResponse,
+            GPTResponse: task.GPTResponse,
+          },
+          rubricQuestions.map((q) => ({
+            id: q.key,
+            question: q.question,
+            tag: `criterion_${q.number}`,
+          }))
+        )
+      : "";
 
   // Copy prompt to clipboard
   const copyPromptToClipboard = async () => {
@@ -260,12 +238,12 @@ export default function ModelEvalGeminiPage() {
         taskId: data.taskId,
         modelScores,
       });
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      // Error handling is done in the mutation
+      console.error("Model evaluation submission error:", error);
     }
   };
 
+  // Loading state
   if (taskLoading) {
     return (
       <div className="space-y-6">
@@ -289,6 +267,7 @@ export default function ModelEvalGeminiPage() {
     );
   }
 
+  // Error state
   if (taskError || !task) {
     return (
       <div className="space-y-6">
@@ -347,8 +326,13 @@ export default function ModelEvalGeminiPage() {
     );
   }
 
-  // Check if required data exists
-  if (!task.Rubric_V2 || !task.Human_Eval_Gemini) {
+  // FIXED: Check for required prerequisites using dynamic validation
+  const prerequisites = getEvaluationPrerequisites(
+    task as AirtableTaskRecord,
+    "model-gemini"
+  );
+
+  if (prerequisites.missingItems.length > 0) {
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -365,20 +349,27 @@ export default function ModelEvalGeminiPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Missing Required Data</AlertTitle>
           <AlertDescription>
-            You need to complete the V2 rubric and human evaluation before model
-            evaluation.
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 ml-2"
-              onClick={() =>
-                router.push(
-                  `/dashboard/tasks/${taskId}/evaluation/human-gemini`
-                )
-              }
-            >
-              Complete Human Evaluation
-            </Button>
+            <div className="space-y-2">
+              <p>You need to complete the following before model evaluation:</p>
+              <ul className="list-disc list-inside space-y-1">
+                {prerequisites.missingItems.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() =>
+                  router.push(
+                    `/dashboard/tasks/${taskId}/evaluation/human-gemini`
+                  )
+                }
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Complete Human Evaluation
+              </Button>
+            </div>
           </AlertDescription>
         </Alert>
       </div>
@@ -400,33 +391,14 @@ export default function ModelEvalGeminiPage() {
     <div className="space-y-6 pb-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="space-y-1">
-            <div className="flex items-center space-x-3">
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">
-                Model Evaluate Gemini
-              </h1>
-              <Badge
-                className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
-                variant="outline"
-              >
-                Step 5
-              </Badge>
-            </div>
-            <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-              <span>{task.TaskID}</span>
-              {sectorInfo && (
-                <div className="flex items-center space-x-1">
-                  <span>{sectorInfo.icon}</span>
-                  <span>{sectorInfo.label}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <EvaluationHeader
+          title="Model Evaluate Gemini"
+          stepNumber={5}
+          taskId={task.TaskID}
+          task={task as AirtableTaskRecord}
+          sectorInfo={sectorInfo}
+          questionCount={rubricQuestions.length}
+        />
       </div>
 
       {/* Top Section: Instructions and Prompt */}
@@ -461,7 +433,7 @@ export default function ModelEvalGeminiPage() {
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
                 3
               </span>
-              <span>Input the model&apos;s responses in the form below</span>
+              <span>Input the model&apsos;s responses in the form below</span>
             </div>
             <div className="flex items-start space-x-2">
               <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
@@ -519,7 +491,7 @@ export default function ModelEvalGeminiPage() {
               <Alert>
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription className="text-sm">
-                  Alignment below 80% will require V2 rubric revision
+                  Alignment below 80% will require rubric enhancement
                 </AlertDescription>
               </Alert>
             )}
@@ -622,8 +594,8 @@ export default function ModelEvalGeminiPage() {
                 <span>Model Evaluation Input</span>
               </CardTitle>
               <CardDescription>
-                Input the model&apos;s Yes/No responses for each rubric
-                criterion
+                Input the model&apos;s Yes/No responses for each{" "}
+                {prerequisites.versionName} criterion
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

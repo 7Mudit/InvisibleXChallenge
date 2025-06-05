@@ -11,17 +11,130 @@ import {
   Task,
   TaskSummary,
   RubricV1InputSchema,
-  RubricV2InputSchema,
   HumanEvalInputSchema,
   ModelEvalInputSchema,
   calculateAlignment,
   validateRubricJSON,
   validateEvaluationScores,
   getStatusDisplayInfo,
+  getRubricFieldName,
+  RubricEnhanceInputSchema,
+  getCurrentRubricContent,
+  addAlignmentToHistory,
 } from "@/lib/schemas/task";
 import { generateTaskId } from "@/lib/utils/task-utils";
 import { clerkClient } from "@clerk/nextjs/server";
 import z from "zod";
+
+class AirtableFieldManager {
+  private baseId: string;
+  private tableId: string;
+  private apiKey: string;
+
+  constructor(baseId: string, tableId: string, apiKey: string) {
+    this.baseId = baseId;
+    this.tableId = tableId;
+    this.apiKey = apiKey;
+  }
+
+  // Check if a field exists in the table
+  async fieldExists(fieldName: string): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `https://api.airtable.com/v0/meta/bases/${this.baseId}/tables`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        console.error("Failed to fetch table schema:", response.statusText);
+        return false;
+      }
+
+      const data = await response.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const table = data.tables.find((t: any) => t.id === this.tableId);
+
+      if (!table) {
+        console.error("Table not found in schema");
+        return false;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return table.fields.some((field: any) => field.name === fieldName);
+    } catch (error) {
+      console.error("Error checking field existence:", error);
+      return false;
+    }
+  }
+
+  // Create a new rubric field dynamically
+  async createRubricField(version: number): Promise<boolean> {
+    const fieldName = getRubricFieldName(version);
+
+    try {
+      // First check if field already exists
+      const exists = await this.fieldExists(fieldName);
+      if (exists) {
+        console.log(`Field ${fieldName} already exists`);
+        return true;
+      }
+
+      console.log(`Creating new field: ${fieldName}`);
+
+      const response = await fetch(
+        `https://api.airtable.com/v0/meta/bases/${this.baseId}/tables/${this.tableId}/fields`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: fieldName,
+            type: "multilineText",
+            description: `Rubric version ${version} - JSON string with evaluation criteria`,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        console.error(
+          `Failed to create field ${fieldName}:`,
+          response.statusText
+        );
+        return false;
+      }
+
+      console.log(`Successfully created field: ${fieldName}`);
+      return true;
+    } catch (error) {
+      console.error(`Error creating field ${fieldName}:`, error);
+      return false;
+    }
+  }
+
+  // Ensure all required fields exist up to a certain version
+  async ensureRubricFieldsExist(maxVersion: number): Promise<boolean> {
+    for (let version = 1; version <= maxVersion; version++) {
+      const success = await this.createRubricField(version);
+      if (!success) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+// Initialize field manager
+const fieldManager = new AirtableFieldManager(
+  process.env.AIRTABLE_BASE_ID!,
+  process.env.AIRTABLE_TABLE_ID!,
+  process.env.AIRTABLE_API_KEY!
+);
 
 export const tasksRouter = router({
   // Original create task mutation (updated to use new status)
@@ -83,6 +196,8 @@ export const tasksRouter = router({
           const validatedServerData = ServerTaskSchema.parse(serverData);
           const taskID = generateTaskId();
           const airtableData = toAirtableFormat(validatedServerData, taskID);
+
+          await fieldManager.ensureRubricFieldsExist(2);
 
           console.log("Creating record in Airtable:", taskID);
 
@@ -261,10 +376,11 @@ export const tasksRouter = router({
         });
       }
     }),
+  // here we will start enhancing the rubrics...
+  // Fix the updateRubricEnhanced mutation in your router
 
-  // Step 2: Update Rubric V2
-  updateRubricV2: protectedProcedure
-    .input(RubricV2InputSchema)
+  updateRubricEnhanced: protectedProcedure
+    .input(RubricEnhanceInputSchema)
     .mutation(async ({ input, ctx }) => {
       try {
         const client = await clerkClient();
@@ -280,8 +396,7 @@ export const tasksRouter = router({
           });
         }
 
-        // Validate rubric JSON format
-        const validation = validateRubricJSON(input.rubricV2);
+        const validation = validateRubricJSON(input.rubricContent);
         if (!validation.isValid) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -289,7 +404,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Find the task
         const existingRecords = await ctx.airtable.tasksTable
           .select({
             filterByFormula: `AND({TaskID} = '${input.taskId}', {TrainerEmail} = '${userEmail}')`,
@@ -306,24 +420,55 @@ export const tasksRouter = router({
 
         const existingRecord = existingRecords[0];
 
-        // Validate current status
-        if (
-          !["Rubric_V1", "Rubric_V2"].includes(existingRecord.fields.Status)
-        ) {
+        // Determine if this is V2 creation or iteration enhancement
+        const isCreatingV2 = existingRecord.fields.Status === "Rubric_V1";
+        const isIterating = existingRecord.fields.Status === "Rubric_Enhancing";
+
+        if (!isCreatingV2 && !isIterating) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Task is not in the correct state for V2 rubric creation.",
+            message: "Task is not in the correct state for rubric enhancement.",
           });
         }
 
-        // Update the record
+        // Validate target version
+        const currentVersion =
+          existingRecord.fields.Current_Rubric_Version || 1;
+        const expectedTargetVersion = isCreatingV2 ? 2 : currentVersion + 1;
+
+        if (input.targetVersion !== expectedTargetVersion) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Target version mismatch. Expected ${expectedTargetVersion}, got ${input.targetVersion}`,
+          });
+        }
+
+        // Ensure the target version field exists
+        await fieldManager.ensureRubricFieldsExist(input.targetVersion);
+
+        const rubricFieldName = getRubricFieldName(input.targetVersion);
+
+        // Determine next status
+        let nextStatus: TaskStatus;
+        if (isCreatingV2) {
+          nextStatus = "Rubric_V2";
+        } else {
+          // For iterations, we go back to enhancing mode until evaluation
+          nextStatus = "Rubric_Enhancing";
+        }
+
+        // Update the record with the new version
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updateFields: any = {
+          [rubricFieldName]: input.rubricContent,
+          Current_Rubric_Version: input.targetVersion,
+          Status: nextStatus,
+        };
+
         const updatedRecords = await ctx.airtable.tasksTable.update([
           {
             id: existingRecord.id,
-            fields: {
-              Rubric_V2: input.rubricV2,
-              Status: "Rubric_V2" as TaskStatus,
-            },
+            fields: updateFields,
           },
         ]);
 
@@ -337,28 +482,34 @@ export const tasksRouter = router({
         }
 
         console.log(
-          "V2 Rubric saved:",
+          `V${input.targetVersion} Rubric saved:`,
           input.taskId,
           "Items:",
-          validation.rubricCount
+          validation.rubricCount,
+          "Type:",
+          isCreatingV2 ? "V2 Creation" : "Iteration"
         );
 
         return {
           success: true,
-          message: `V2 Rubric enhanced successfully with ${validation.rubricCount} items!`,
+          message: `V${input.targetVersion} Rubric ${
+            isCreatingV2 ? "created" : "enhanced"
+          } successfully with ${validation.rubricCount} items!`,
+          version: input.targetVersion,
+          isCreatingV2,
           task: {
             id: updatedRecord.id,
             ...updatedRecord.fields,
           },
         };
       } catch (error) {
-        console.error("Failed to update V2 rubric:", error);
+        console.error("Failed to update enhanced rubric:", error);
         if (error instanceof TRPCError) {
           throw error;
         }
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to save V2 rubric.",
+          message: "Failed to save enhanced rubric.",
         });
       }
     }),
@@ -381,7 +532,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Find the task
         const existingRecords = await ctx.airtable.tasksTable
           .select({
             filterByFormula: `AND({TaskID} = '${input.taskId}', {TrainerEmail} = '${userEmail}')`,
@@ -398,9 +548,8 @@ export const tasksRouter = router({
 
         const existingRecord = existingRecords[0];
 
-        // Validate current status
         if (
-          !["Rubric_V2", "Human_Eval_Gemini"].includes(
+          !["Rubric_V2", "Rubric_Enhancing", "Human_Eval_Gemini"].includes(
             existingRecord.fields.Status
           )
         ) {
@@ -410,19 +559,20 @@ export const tasksRouter = router({
           });
         }
 
-        // Validate scores against rubric
-        if (!existingRecord.fields.Rubric_V2) {
+        // Get current rubric for validation
+        const currentRubric = getCurrentRubricContent(existingRecord.fields);
+        if (!currentRubric) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "V2 Rubric not found. Please create V2 rubric first.",
+            message:
+              "Current rubric not found. Please create/enhance rubric first.",
           });
         }
 
         const scoreValidation = validateEvaluationScores(
           input.humanScores,
-          existingRecord.fields.Rubric_V2
+          currentRubric
         );
-
         if (!scoreValidation.isValid) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -432,7 +582,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Update the record
         const updatedRecords = await ctx.airtable.tasksTable.update([
           {
             id: existingRecord.id,
@@ -492,7 +641,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Find the task
         const existingRecords = await ctx.airtable.tasksTable
           .select({
             filterByFormula: `AND({TaskID} = '${input.taskId}', {TrainerEmail} = '${userEmail}')`,
@@ -509,7 +657,6 @@ export const tasksRouter = router({
 
         const existingRecord = existingRecords[0];
 
-        // Validate current status
         if (
           !["Human_Eval_Gemini", "Model_Eval_Gemini"].includes(
             existingRecord.fields.Status
@@ -521,23 +668,19 @@ export const tasksRouter = router({
           });
         }
 
-        // Validate required fields
-        if (
-          !existingRecord.fields.Rubric_V2 ||
-          !existingRecord.fields.Human_Eval_Gemini
-        ) {
+        // Get current rubric and human scores
+        const currentRubric = getCurrentRubricContent(existingRecord.fields);
+        if (!currentRubric || !existingRecord.fields.Human_Eval_Gemini) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "V2 Rubric and Human evaluation are required.",
+            message: "Current rubric and Human evaluation are required.",
           });
         }
 
-        // Validate scores against rubric
         const scoreValidation = validateEvaluationScores(
           input.modelScores,
-          existingRecord.fields.Rubric_V2
+          currentRubric
         );
-
         if (!scoreValidation.isValid) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -551,23 +694,46 @@ export const tasksRouter = router({
         const alignment = calculateAlignment(
           existingRecord.fields.Human_Eval_Gemini,
           input.modelScores,
-          existingRecord.fields.Rubric_V2
+          currentRubric
         );
 
-        // Determine next status based on alignment
-        const nextStatus: TaskStatus =
-          alignment.percentage >= 80 ? "Model_Eval_Gemini" : "Rubric_V2"; // Send back to V2 if alignment < 80%
+        const currentVersion =
+          existingRecord.fields.Current_Rubric_Version || 1;
 
-        // Update the record
+        // Update alignment history
+        const updatedHistory = addAlignmentToHistory(
+          existingRecord.fields,
+          currentVersion,
+          alignment.percentage,
+          alignment.misalignedItems.length
+        );
+
+        // Determine next status WITHOUT incrementing version yet
+        let nextStatus: TaskStatus;
+
+        if (alignment.percentage >= 80) {
+          nextStatus = "Model_Eval_Gemini";
+        } else {
+          nextStatus = "Rubric_Enhancing";
+        }
+
+        // Ensure the next version field exists (for future use)
+        const nextVersion = currentVersion + 1;
+        await fieldManager.ensureRubricFieldsExist(nextVersion);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updateFields: any = {
+          Model_Eval_Gemini: input.modelScores,
+          Alignment_Gemini: alignment.percentage,
+          Misaligned_Gemini: JSON.stringify(alignment.misalignedItems),
+          Alignment_History: updatedHistory,
+          Status: nextStatus,
+        };
+
         const updatedRecords = await ctx.airtable.tasksTable.update([
           {
             id: existingRecord.id,
-            fields: {
-              Model_Eval_Gemini: input.modelScores,
-              Alignment_Gemini: alignment.percentage,
-              Misaligned_Gemini: JSON.stringify(alignment.misalignedItems),
-              Status: nextStatus,
-            },
+            fields: updateFields,
           },
         ]);
 
@@ -584,13 +750,17 @@ export const tasksRouter = router({
           "Model evaluation for Gemini saved:",
           input.taskId,
           "Alignment:",
-          alignment.percentage + "%"
+          alignment.percentage + "%",
+          "Current version:",
+          currentVersion,
+          "Next version will be:",
+          nextVersion
         );
 
         const message =
           alignment.percentage >= 80
             ? `Model evaluation completed! Alignment: ${alignment.percentage}% - Ready for GPT evaluation.`
-            : `Alignment too low: ${alignment.percentage}%. Please revise V2 rubric and re-evaluate.`;
+            : `Alignment: ${alignment.percentage}%. Need to enhance V${currentVersion} to V${nextVersion}.`;
 
         return {
           success: true,
@@ -598,6 +768,8 @@ export const tasksRouter = router({
           alignment: alignment.percentage,
           misalignedCount: alignment.misalignedItems.length,
           needsRevision: alignment.percentage < 80,
+          nextVersion: nextVersion,
+          currentVersion: currentVersion,
           task: {
             id: updatedRecord.id,
             ...updatedRecord.fields,
@@ -633,7 +805,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Find the task
         const existingRecords = await ctx.airtable.tasksTable
           .select({
             filterByFormula: `AND({TaskID} = '${input.taskId}', {TrainerEmail} = '${userEmail}')`,
@@ -650,7 +821,6 @@ export const tasksRouter = router({
 
         const existingRecord = existingRecords[0];
 
-        // Validate current status and Gemini alignment
         if (existingRecord.fields.Status !== "Model_Eval_Gemini") {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -658,7 +828,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Check Gemini alignment requirement
         if (
           !existingRecord.fields.Alignment_Gemini ||
           existingRecord.fields.Alignment_Gemini < 80
@@ -670,20 +839,18 @@ export const tasksRouter = router({
           });
         }
 
-        // Validate required fields
-        if (!existingRecord.fields.Rubric_V2) {
+        const currentRubric = getCurrentRubricContent(existingRecord.fields);
+        if (!currentRubric) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "V2 Rubric not found.",
+            message: "Current rubric not found.",
           });
         }
 
-        // Validate scores against rubric
         const scoreValidation = validateEvaluationScores(
           input.humanScores,
-          existingRecord.fields.Rubric_V2
+          currentRubric
         );
-
         if (!scoreValidation.isValid) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -693,7 +860,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Update the record
         const updatedRecords = await ctx.airtable.tasksTable.update([
           {
             id: existingRecord.id,
@@ -753,7 +919,6 @@ export const tasksRouter = router({
           });
         }
 
-        // Find the task
         const existingRecords = await ctx.airtable.tasksTable
           .select({
             filterByFormula: `AND({TaskID} = '${input.taskId}', {TrainerEmail} = '${userEmail}')`,
@@ -770,7 +935,6 @@ export const tasksRouter = router({
 
         const existingRecord = existingRecords[0];
 
-        // Validate current status
         if (
           !["Human_Eval_GPT", "Model_Eval_GPT"].includes(
             existingRecord.fields.Status
@@ -783,23 +947,19 @@ export const tasksRouter = router({
           });
         }
 
-        // Validate required fields
-        if (
-          !existingRecord.fields.Rubric_V2 ||
-          !existingRecord.fields.Human_Eval_GPT
-        ) {
+        const currentRubric = getCurrentRubricContent(existingRecord.fields);
+        if (!currentRubric || !existingRecord.fields.Human_Eval_GPT) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "V2 Rubric and Human evaluation for GPT are required.",
+            message:
+              "Current rubric and Human evaluation for GPT are required.",
           });
         }
 
-        // Validate scores against rubric
         const scoreValidation = validateEvaluationScores(
           input.modelScores,
-          existingRecord.fields.Rubric_V2
+          currentRubric
         );
-
         if (!scoreValidation.isValid) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -809,14 +969,12 @@ export const tasksRouter = router({
           });
         }
 
-        // Calculate alignment for GPT
         const alignment = calculateAlignment(
           existingRecord.fields.Human_Eval_GPT,
           input.modelScores,
-          existingRecord.fields.Rubric_V2
+          currentRubric
         );
 
-        // Update the record - GPT evaluation completes the task regardless of alignment
         const updatedRecords = await ctx.airtable.tasksTable.update([
           {
             id: existingRecord.id,
@@ -898,7 +1056,10 @@ export const tasksRouter = router({
         Prompt: record.fields.Prompt,
         ProfessionalSector: record.fields.ProfessionalSector,
         Status: record.fields.Status,
-        Progress: calculateTaskProgress(record.fields.Status),
+        Progress: calculateTaskProgress(
+          record.fields.Status,
+          record.fields.Current_Rubric_Version
+        ),
         TrainerEmail: record.fields.TrainerEmail,
         Created: record.fields.Created,
       }));

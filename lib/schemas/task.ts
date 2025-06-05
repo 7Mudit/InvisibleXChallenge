@@ -17,6 +17,7 @@ export const TaskStatus = z.enum([
   "Task_Creation",
   "Rubric_V1",
   "Rubric_V2",
+  "Rubric_Enhancing",
   "Human_Eval_Gemini",
   "Model_Eval_Gemini",
   "Human_Eval_GPT",
@@ -102,9 +103,12 @@ export interface AirtableTaskRecord extends FieldSet {
   Created?: string;
   LastModified?: string;
 
+  Current_Rubric_Version: number;
+
   // New rubric fields
   Rubric_V1?: string; // JSON string - Initial rubric from Gemini
-  Rubric_V2?: string; // JSON string - Enhanced rubric (final version)
+  Rubric_V2?: string; // JSON string - Enhanced rubric
+  [key: `Rubric_V${number}`]: string | undefined;
 
   // Gemini evaluation fields
   Human_Eval_Gemini?: string; // JSON string - Human scores for Gemini response
@@ -118,6 +122,8 @@ export interface AirtableTaskRecord extends FieldSet {
   Alignment_GPT?: number; // Number 0-100 - Alignment percentage for GPT
   Misaligned_GPT?: string; // JSON array - Misaligned items for GPT
 
+  Alignment_History?: string;
+
   // Optional comments
   Comments?: string; // General comments about the evaluation
 }
@@ -126,6 +132,22 @@ export interface Task extends AirtableTaskRecord {
   id: string;
 }
 
+export function getRubricFieldName(version: number): string {
+  return `Rubric_V${version}`;
+}
+
+export function getCurrentRubricFieldName(task: AirtableTaskRecord): string {
+  const version = task.Current_Rubric_Version || 1;
+  return getRubricFieldName(version);
+}
+
+export function getCurrentRubricContent(
+  task: AirtableTaskRecord
+): string | undefined {
+  const fieldName = getCurrentRubricFieldName(task);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (task as any)[fieldName];
+}
 export const TaskSummarySchema = z.object({
   id: z.string(),
   TaskID: z.string(),
@@ -239,14 +261,21 @@ export const EvaluationScoresSchema = z.string().refine(
 );
 
 // Step-specific input schemas
+export const RubricInputSchema = z.object({
+  taskId: z.string(),
+  rubricContent: RubricJSONSchema,
+  version: z.number().min(1).max(50),
+});
+
 export const RubricV1InputSchema = z.object({
   taskId: z.string(),
   rubricV1: RubricJSONSchema,
 });
 
-export const RubricV2InputSchema = z.object({
+export const RubricEnhanceInputSchema = z.object({
   taskId: z.string(),
-  rubricV2: RubricJSONSchema,
+  rubricContent: RubricJSONSchema,
+  targetVersion: z.number().min(2),
 });
 
 export const HumanEvalInputSchema = z.object({
@@ -259,13 +288,46 @@ export const ModelEvalInputSchema = z.object({
   modelScores: EvaluationScoresSchema,
 });
 
+export type RubricInput = z.infer<typeof RubricInputSchema>;
 export type RubricV1Input = z.infer<typeof RubricV1InputSchema>;
-export type RubricV2Input = z.infer<typeof RubricV2InputSchema>;
+export type RubricEnhanceInput = z.infer<typeof RubricEnhanceInputSchema>;
 export type HumanEvalInput = z.infer<typeof HumanEvalInputSchema>;
 export type ModelEvalInput = z.infer<typeof ModelEvalInputSchema>;
 
-// Utility functions
+export interface AlignmentHistoryEntry {
+  version: number;
+  alignment: number;
+  timestamp: string;
+  misalignedCount: number;
+}
 
+export function addAlignmentToHistory(
+  task: AirtableTaskRecord,
+  version: number,
+  alignment: number,
+  misalignedCount: number
+): string {
+  const currentHistory: AlignmentHistoryEntry[] = task.Alignment_History
+    ? JSON.parse(task.Alignment_History)
+    : [];
+
+  const newEntry: AlignmentHistoryEntry = {
+    version,
+    alignment,
+    timestamp: new Date().toISOString(),
+    misalignedCount,
+  };
+
+  // Remove any existing entry for this version and add the new one
+  const updatedHistory = [
+    ...currentHistory.filter((entry) => entry.version !== version),
+    newEntry,
+  ].sort((a, b) => a.version - b.version);
+
+  return JSON.stringify(updatedHistory);
+}
+
+// Utility functions
 export function addServerFields(
   frontendData: CreateTaskInput,
   trainerEmail: string
@@ -291,6 +353,7 @@ export function toAirtableFormat(
     GPTResponse: serverData.GPTResponse,
     GeminiResponse: serverData.GeminiResponse,
     Status: "Task_Creation" as TaskStatus,
+    Current_Rubric_Version: 1,
   };
 }
 
@@ -351,6 +414,14 @@ export function getStatusDisplayInfo(status: TaskStatus) {
         step: 3,
         description: "Enhanced rubric ready",
       };
+    case "Rubric_Enhancing":
+      return {
+        label: "Enhancing Rubric",
+        color:
+          "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+        step: 3,
+        description: "Improving rubric for better alignment",
+      };
     case "Human_Eval_Gemini":
       return {
         label: "Human Eval Gemini",
@@ -401,41 +472,57 @@ export function getStatusDisplayInfo(status: TaskStatus) {
   }
 }
 
-export function calculateTaskProgress(status: TaskStatus): number {
-  switch (status) {
-    case "Task_Creation":
-      return 12.5;
-    case "Rubric_V1":
-      return 25;
-    case "Rubric_V2":
-      return 37.5;
-    case "Human_Eval_Gemini":
-      return 50;
-    case "Model_Eval_Gemini":
-      return 62.5;
-    case "Human_Eval_GPT":
-      return 75;
-    case "Model_Eval_GPT":
-      return 87.5;
-    case "Completed":
-      return 100;
-    default:
-      return 0;
+export function calculateTaskProgress(
+  status: TaskStatus,
+  currentVersion?: number
+): number {
+  const baseProgress = {
+    Task_Creation: 12.5,
+    Rubric_V1: 25,
+    Rubric_V2: 37.5,
+    Rubric_Enhancing: 37.5, // Same as V2 since it's iterative improvement
+    Human_Eval_Gemini: 50,
+    Model_Eval_Gemini: 62.5,
+    Human_Eval_GPT: 75,
+    Model_Eval_GPT: 87.5,
+    Completed: 100,
+  };
+
+  let progress = baseProgress[status] || 0;
+
+  // Slight adjustment for multiple iterations to show progress
+  if (status === "Rubric_Enhancing" && currentVersion && currentVersion > 2) {
+    // Add small increment for each iteration to show progress
+    const iterationBonus = Math.min((currentVersion - 2) * 2, 10); // Max 10% bonus
+    progress = Math.min(progress + iterationBonus, 45); // Don't exceed Human_Eval_Gemini threshold
   }
+
+  return progress;
 }
 
-export function getNextStatus(currentStatus: TaskStatus): TaskStatus | null {
+export function getNextStatus(
+  currentStatus: TaskStatus,
+  alignment?: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  currentVersion?: number
+): TaskStatus | null {
   switch (currentStatus) {
     case "Task_Creation":
       return "Rubric_V1";
     case "Rubric_V1":
-      return "Rubric_V2";
+      return "Rubric_V2"; // Go to V2 creation, not enhancement
     case "Rubric_V2":
+      return "Human_Eval_Gemini";
+    case "Rubric_Enhancing":
       return "Human_Eval_Gemini";
     case "Human_Eval_Gemini":
       return "Model_Eval_Gemini";
     case "Model_Eval_Gemini":
-      return "Human_Eval_GPT"; // Only if alignment >= 80%
+      // Dynamic decision based on alignment
+      if (alignment !== undefined) {
+        return alignment >= 80 ? "Human_Eval_GPT" : "Rubric_Enhancing";
+      }
+      return "Human_Eval_GPT";
     case "Human_Eval_GPT":
       return "Model_Eval_GPT";
     case "Model_Eval_GPT":
@@ -447,14 +534,41 @@ export function getNextStatus(currentStatus: TaskStatus): TaskStatus | null {
   }
 }
 
+// Get current rubric version display name
+export function getCurrentRubricVersionName(task: AirtableTaskRecord): string {
+  const version = task.Current_Rubric_Version || 1;
+  if (version <= 2) {
+    return `V${version}`;
+  }
+  return `V${version} (Enhanced)`;
+}
+
+// Check if task needs rubric iteration
+export function needsRubricIteration(task: AirtableTaskRecord): boolean {
+  return (
+    task.Status === "Model_Eval_Gemini" &&
+    task.Alignment_Gemini !== undefined &&
+    task.Alignment_Gemini < 80
+  );
+}
+
 // Get all step definitions for progress tracking
-export function getWorkflowSteps(): Array<{
+// First, define the interface for workflow steps
+export interface WorkflowStep {
   status: TaskStatus;
   label: string;
   description: string;
   estimatedTime: string;
-}> {
-  return [
+  isIterative?: boolean;
+  iterationInfo?: {
+    currentVersion: number;
+    targetVersion: number;
+    reason: string;
+  };
+}
+
+export function getWorkflowSteps(task?: AirtableTaskRecord): WorkflowStep[] {
+  const baseSteps: WorkflowStep[] = [
     {
       status: "Task_Creation",
       label: "Task Setup",
@@ -467,12 +581,45 @@ export function getWorkflowSteps(): Array<{
       description: "Generate initial rubric using AI prompt",
       estimatedTime: "10-15 minutes",
     },
-    {
+  ];
+
+  // Handle V2 creation vs enhancement
+  if (task?.Status === "Rubric_V1") {
+    baseSteps.push({
       status: "Rubric_V2",
       label: "Enhance to V2 Rubric",
       description: "Refine and improve the initial rubric",
       estimatedTime: "15-20 minutes",
-    },
+    });
+  } else if (task && needsRubricIteration(task)) {
+    const currentVersion = task.Current_Rubric_Version || 2;
+    const targetVersion = currentVersion + 1;
+    const alignment = task.Alignment_Gemini || 0;
+
+    baseSteps.push({
+      status: "Rubric_Enhancing",
+      label: `Create V${targetVersion} Rubric`,
+      description: `Enhance rubric for better alignment (was ${alignment}%)`,
+      estimatedTime: "15-25 minutes",
+      isIterative: true,
+      iterationInfo: {
+        currentVersion,
+        targetVersion,
+        reason: `Previous alignment: ${alignment}% (need ≥80%)`,
+      },
+    });
+  } else {
+    // Standard V2 step if not in iteration mode
+    baseSteps.push({
+      status: "Rubric_V2",
+      label: "V2 Rubric",
+      description: "Enhanced rubric ready",
+      estimatedTime: "Complete",
+    });
+  }
+
+  // Add remaining evaluation steps
+  baseSteps.push(
     {
       status: "Human_Eval_Gemini",
       label: "Human Evaluate Gemini",
@@ -502,8 +649,10 @@ export function getWorkflowSteps(): Array<{
       label: "Evaluation Complete",
       description: "All evaluations finished",
       estimatedTime: "Complete",
-    },
-  ];
+    }
+  );
+
+  return baseSteps;
 }
 
 // Alignment calculation utility
