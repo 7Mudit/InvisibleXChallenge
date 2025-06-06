@@ -72,224 +72,6 @@ How to write rubrics:
 
 **IMPORTANT** You must follow all the guidelines mentioned above to write rubrics. Failure to do so will have really bad consequences.
 
-Below are some examples of rubric decompositions with the new format:
-
-**Example 1 (Data-Science & Analysis - Finding inconsistencies)**
-
-**question:** Identify and list any inconsistencies in the following dataset. Do not attempt to correct the data, only list the inconsistencies. The dataset represents customer orders, and should have consistent data types within each column.
-
-\`\`\`csv
-CustomerID,OrderDate,TotalAmount,PaymentMethod
-101,2023-01-15,125.50,Credit Card
-102,2023-02-28,87.20,Debit Card
-103,2023-03-10,Two Hundred,Cash
-104,2023-04-01,45,Paypal
-101,2023-01-15,125.50,Credit Card
-\`\`\`
-
-**answer:**
-
-- The \`TotalAmount\` column has inconsistent data types: "Two Hundred" is text, while the others are numeric.
-- The \`TotalAmount\` column has inconsistent formatting. "45" is missing decimal places present in the other entries.
-- CustomerID 101 has duplicate entries.
-
-<rubrics>
-{
-  "rubric_1": {
-    "question": "Does the response identify the inconsistent data type ('Two Hundred') in the \`TotalAmount\` column?",
-    "tag": "data_types"
-  },
-  "rubric_2": {
-    "question": "Does the response identify the inconsistent formatting ('45' missing decimal places) in \`TotalAmount\`?",
-    "tag": "formatting"
-  },
-  "rubric_3": {
-    "question": "Does the response identify the duplicate entries for CustomerID 101?",
-    "tag": "duplicates"
-  },
-  "rubric_4": {
-    "question": "Does the response *only* list inconsistencies and *not* attempt to correct them?",
-    "tag": "instructions"
-  }
-}
-</rubrics>
-
-**Example 2 (Web Development - Troubleshooting)**
-
-**question:** The following JavaScript code is intended to change the text color of a button with the ID "myButton" to red when it's clicked. It's not working. Identify the error, but do *not* provide the corrected code.
-
-\`\`\`javascript
-document.getElementByID("myButton").style.color = "red";
-\`\`\`
-
-**answer:** The method name is incorrect. It should be \`getElementById\`, not \`getElementByID\`.
-
-<rubrics>
-{
-  "rubric_1": {
-    "question": "Does the response correctly identify the error as an incorrect method name?",
-    "tag": "error_identification"
-  },
-  "rubric_2": {
-    "question": "Does the response correctly identify the correct method name as \`getElementById\`?",
-    "tag": "correction"
-  },
-  "rubric_3": {
-    "question": "Does the response *not* provide the corrected code?",
-    "tag": "instructions"
-  }
-}
-</rubrics>
-
-**Example 3 (STEM Research - Grant Writing)**
-
-**question:** Write the "Project Goals" section of a grant proposal for research on the effects of microplastics on marine invertebrate populations. The section should be no more than 200 words and should clearly state 3 distinct project goals. Do *not* include background information or methodology.
-
-**answer:**
-
-The primary goals of this research project are:
-
-1. To quantify the prevalence and types of microplastics found in the tissues of key marine invertebrate species in [Specific Location].
-
-2. To determine the physiological effects (e.g., growth rate, reproductive success) of exposure to different concentrations of common microplastic types on these species.
-
-3. To assess the potential for trophic transfer of microplastics from these invertebrates to higher-level predators.
-
-<rubrics>
-{
-  "rubric_1": {
-    "question": "Is the response a 'Project Goals' section?",
-    "tag": "format"
-  },
-  "rubric_2": {
-    "question": "Is the response no more than 200 words?",
-    "tag": "word_limit"
-  },
-  "rubric_3": {
-    "question": "Does the response clearly state 3 distinct project goals?",
-    "tag": "goal_count"
-  },
-  "rubric_4": {
-    "question": "Is the first goal related to quantifying microplastic prevalence and types?",
-    "tag": "goal_1_content"
-  },
-  "rubric_5": {
-    "question": "Is the second goal related to determining physiological effects of microplastic exposure?",
-    "tag": "goal_2_content"
-  },
-  "rubric_6": {
-    "question": "Is the third goal related to assessing trophic transfer of microplastics?",
-    "tag": "goal_3_content"
-  },
-  "rubric_7": {
-    "question": "Does the response *not* include background information?",
-    "tag": "no_background"
-  },
-  "rubric_8": {
-    "question": "Does the response *not* include methodology?",
-    "tag": "no_methodology"
-  }
-}
-</rubrics>
-
-**Example 4 (Data Science - Categorizing/Filtering with Code)**
-
-**question:** Write Python code using Pandas to filter a DataFrame named \`df\`. The DataFrame contains columns 'Category' (string), 'Price' (float), and 'InStock' (boolean). The filtered DataFrame should include only rows where 'Category' is 'Electronics' AND 'Price' is greater than 100. Do not include any comments or docstrings. Do not print the DataFrame.
-
-**answer:**
-
-\`\`\`python
-import pandas as pd
-filtered_df = df[(df['Category'] == 'Electronics') & (df['Price'] > 100)]
-\`\`\`
-
-<rubrics>
-{
-  "rubric_1": {
-    "question": "Does the response include Python code?",
-    "tag": "language"
-  },
-  "rubric_2": {
-    "question": "Does the response use the Pandas library?",
-    "tag": "library"
-  },
-  "rubric_3": {
-    "question": "Does the response create a new DataFrame named \`filtered_df\`?",
-    "tag": "variable_name"
-  },
-  "rubric_4": {
-    "question": "Does the code filter rows where 'Category' is 'Electronics'?",
-    "tag": "category_filter"
-  },
-  "rubric_5": {
-    "question": "Does the code filter rows where 'Price' is greater than 100?",
-    "tag": "price_filter"
-  },
-  "rubric_6": {
-    "question": "Does the code use the AND operator (&) to combine the filtering conditions?",
-    "tag": "logical_operator"
-  },
-  "rubric_7": {
-    "question": "Does the code *not* include comments?",
-    "tag": "no_comments"
-  },
-  "rubric_8": {
-    "question": "Does the code *not* include docstrings?",
-    "tag": "no_docstrings"
-  },
-  "rubric_9": {
-    "question": "Does the code *not* print the DataFrame?",
-    "tag": "no_print"
-  }
-}
-</rubrics>
-
-**Example 5 (Web development - Interactive Web Graphics)**
-
-**question:** Describe, in plain language, the steps required to create a basic, rotating 3D cube using Three.js. Do *not* include any code.
-
-**answer:**
-
-1. Create a scene, camera, and renderer.
-2. Create a cube geometry.
-3. Create a material (e.g., a basic color).
-4. Create a mesh by combining the geometry and material.
-5. Add the mesh to the scene.
-6. Create an animation loop that rotates the cube and renders the scene.
-
-<rubrics>
-{
-  "rubric_1": {
-    "question": "Does the response describe creating a scene, camera, and renderer?",
-    "tag": "setup"
-  },
-  "rubric_2": {
-    "question": "Does the response describe creating a cube geometry?",
-    "tag": "geometry"
-  },
-  "rubric_3": {
-    "question": "Does the response describe creating a material?",
-    "tag": "material"
-  },
-  "rubric_4": {
-    "question": "Does the response describe creating a mesh?",
-    "tag": "mesh"
-  },
-  "rubric_5": {
-    "question": "Does the response describe adding the mesh to the scene?",
-    "tag": "scene_addition"
-  },
-  "rubric_6": {
-    "question": "Does the response describe creating an animation loop that rotates the cube and renders the scene?",
-    "tag": "animation"
-  },
-  "rubric_7": {
-    "question": "Does the response *not* include any code?",
-    "tag": "no_code"
-  }
-}
-</rubrics>
-
 ## Output format
 
 The rubrics must be output as a json within <rubrics></rubrics> tags. Each rubric will be one entry in the json.
@@ -307,6 +89,7 @@ Now generate rubrics(at least 15) for the conversation below:
 
 /**
  * Generate the rubric checker system prompt for evaluating responses
+ * FIXED: Now properly uses actual tags from the rubric items
  */
 export function generateRubricCheckerPrompt(
   task: TaskData,
@@ -320,11 +103,11 @@ export function generateRubricCheckerPrompt(
     return "Please create at least one valid rubric item before generating the checker prompt.";
   }
 
-  // Create rubric JSON in the new format for the prompt
+  // Create rubric JSON in the new format for the prompt - using ACTUAL tags
   const rubricJson = validRubrics.reduce((acc, item, index) => {
     acc[`rubric_${index + 1}`] = {
       question: item.question,
-      tag: item.tag,
+      tag: item.tag, // This now uses the actual tag from the rubric item
     };
     return acc;
   }, {} as Record<string, { question: string; tag: string }>);
@@ -508,11 +291,11 @@ export function formatRubricForSubmission(rubricItems: RubricItem[]): {
     (item) => item.question.trim() && item.tag.trim()
   );
 
-  // NEW: Rubric JSON in new format
+  // NEW: Rubric JSON in new format with actual tags
   const rubricJson = validRubrics.reduce((acc, item, index) => {
     acc[`rubric_${index + 1}`] = {
       question: item.question,
-      tag: item.tag,
+      tag: item.tag, // Use actual tag from item
     };
     return acc;
   }, {} as Record<string, { question: string; tag: string }>);
@@ -529,11 +312,11 @@ export function formatRubricForSubmission(rubricItems: RubricItem[]): {
     return acc;
   }, {} as Record<string, string>);
 
-  // Complete rubric items with metadata (updated)
+  // Complete rubric items with metadata (updated with actual tags)
   const rubricItemsWithMetadata = validRubrics.map((item, index) => ({
     rubricNumber: index + 1,
     question: item.question,
-    tag: item.tag,
+    tag: item.tag, // Use actual tag
     humanScore: item.humanScore,
     aiScore: item.aiScore,
   }));
@@ -547,7 +330,7 @@ export function formatRubricForSubmission(rubricItems: RubricItem[]): {
 }
 
 /**
- * Convert rubric items array to new JSON format
+ * Convert rubric items array to new JSON format with actual tags
  */
 export function rubricItemsToNewFormat(
   items: Array<{ question: string; tag: string }>
@@ -555,7 +338,7 @@ export function rubricItemsToNewFormat(
   const rubric = items.reduce((acc, item, index) => {
     acc[`rubric_${index + 1}`] = {
       question: item.question,
-      tag: item.tag,
+      tag: item.tag, // Use actual tag from item
     };
     return acc;
   }, {} as Record<string, { question: string; tag: string }>);
@@ -583,7 +366,7 @@ export function newFormatToRubricItems(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map(([, value]: [string, any]) => ({
           question: value.question || "",
-          tag: value.tag || "",
+          tag: value.tag || "", // Extract actual tag
         }))
     );
   } catch (error) {

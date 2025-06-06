@@ -136,21 +136,22 @@ export default function ModelEvalGPTPage() {
   });
 
   // Generate the checker prompt for GPT
-  const checkerPrompt =
-    task && rubricQuestions.length > 0
-      ? generateRubricCheckerPrompt(
-          {
-            Prompt: task.Prompt,
-            GeminiResponse: task.GPTResponse, // Note: passing GPT response for evaluation
-            GPTResponse: task.GeminiResponse, // These are swapped for the GPT evaluation
-          },
-          rubricQuestions.map((q) => ({
-            id: q.key,
-            question: q.question,
-            tag: `criterion_${q.number}`,
-          }))
-        )
-      : "";
+  const checkerPrompt = React.useMemo(() => {
+    if (!task || !rubricQuestions.length) return "";
+
+    return generateRubricCheckerPrompt(
+      {
+        Prompt: task.Prompt,
+        GeminiResponse: task.GeminiResponse,
+        GPTResponse: task.GPTResponse,
+      },
+      rubricQuestions.map((q) => ({
+        id: q.key,
+        question: q.question,
+        tag: q.tag,
+      }))
+    );
+  }, [task, rubricQuestions]);
 
   // Copy prompt to clipboard
   const copyPromptToClipboard = async () => {

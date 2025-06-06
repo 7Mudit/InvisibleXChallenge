@@ -36,18 +36,20 @@ import {
 import { api } from "@/lib/trpc/client";
 import {
   getStatusDisplayInfo,
-  getCurrentRubricContent,
   getCurrentRubricVersionName,
   AirtableTaskRecord,
 } from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { cn } from "@/lib/utils";
 
-interface RubricQuestion {
-  key: string;
-  question: string;
-  number: number;
-}
+// Import our reusable utilities
+import {
+  parseCurrentRubricQuestions,
+  getEvaluationPrerequisites,
+  loadExistingEvaluationScores,
+  type RubricQuestion,
+} from "@/lib/utils/evaluation-utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface HumanEvalFormData {
   taskId: string;
@@ -88,50 +90,20 @@ export default function HumanEvalGeminiPage() {
   // Parse current rubric version and load existing evaluations
   useEffect(() => {
     if (task) {
-      // Get current rubric content dynamically
-      const currentRubricContent = getCurrentRubricContent(
-        task as AirtableTaskRecord
-      );
+      // Parse rubric questions using the new format utilities
+      const questions = parseCurrentRubricQuestions(task as AirtableTaskRecord);
+      setRubricQuestions(questions);
+
       const version = task.Current_Rubric_Version || 1;
       setCurrentRubricVersion(version);
 
-      if (currentRubricContent && typeof currentRubricContent === "string") {
-        try {
-          const rubric = JSON.parse(currentRubricContent);
-          const questions: RubricQuestion[] = Object.entries(rubric)
-            .filter(([key]) => key.startsWith("rubric_"))
-            .map(([key, question]) => ({
-              key,
-              question: String(question),
-              number: parseInt(key.replace("rubric_", "")),
-            }))
-            .sort((a, b) => a.number - b.number);
-
-          setRubricQuestions(questions);
-
-          // Load existing human evaluations if available
-          if (
-            task.Human_Eval_Gemini &&
-            typeof task.Human_Eval_Gemini === "string"
-          ) {
-            try {
-              const existingEvals = JSON.parse(task.Human_Eval_Gemini);
-              const evaluations: Record<string, "Yes" | "No"> = {};
-              questions.forEach((q) => {
-                if (existingEvals[q.key]) {
-                  evaluations[q.key] = existingEvals[q.key];
-                }
-              });
-              form.setValue("evaluations", evaluations);
-            } catch (error) {
-              console.error("Error parsing existing evaluations:", error);
-            }
-          }
-        } catch (error) {
-          console.error("Error parsing current rubric:", error);
-          toast.error("Failed to parse current rubric");
-        }
-      }
+      // Load existing evaluations if available using the utility function
+      const existingEvals = loadExistingEvaluationScores(
+        task as AirtableTaskRecord,
+        "human-gemini",
+        questions
+      );
+      form.setValue("evaluations", existingEvals);
     }
   }, [task, form]);
 
@@ -253,6 +225,60 @@ export default function HumanEvalGeminiPage() {
     );
   }
 
+  // Check if task is in correct state using the utility function
+  const prerequisites = getEvaluationPrerequisites(
+    task as AirtableTaskRecord,
+    "human-gemini"
+  );
+
+  if (prerequisites.missingItems.length > 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              Prerequisites Missing
+            </h1>
+          </div>
+        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Cannot Proceed to Evaluation</AlertTitle>
+          <AlertDescription>
+            <div className="space-y-2">
+              <p>Missing requirements:</p>
+              <ul className="list-disc list-inside space-y-1">
+                {prerequisites.missingItems.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  const shouldCreateV2 = task.Status === "Rubric_V1";
+                  const route = shouldCreateV2
+                    ? `/dashboard/tasks/${taskId}/rubric/enhance`
+                    : `/dashboard/tasks/${taskId}/rubric/v1`;
+                  router.push(route);
+                }}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                {task.Status === "Rubric_V1"
+                  ? "Create V2 Rubric"
+                  : "Create Rubric"}
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   // Check if task is in correct state
   if (
     !["Rubric_V2", "Rubric_Enhancing", "Human_Eval_Gemini"].includes(
@@ -277,55 +303,6 @@ export default function HumanEvalGeminiPage() {
           <AlertDescription>
             This task is not in the correct state for human evaluation. Current
             status: {getStatusDisplayInfo(task.Status).label}
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
-
-  // Check if current rubric exists (dynamic version)
-  const currentRubricContent = getCurrentRubricContent(
-    task as AirtableTaskRecord
-  );
-  if (!currentRubricContent) {
-    const versionName = getCurrentRubricVersionName(task as AirtableTaskRecord);
-
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center space-x-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              Rubric Required
-            </h1>
-          </div>
-        </div>
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Missing Current Rubric</AlertTitle>
-          <AlertDescription>
-            You need to create {versionName} rubric before starting human
-            evaluation.
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 ml-2"
-              onClick={() => {
-                // Determine which rubric route to redirect to
-                const shouldCreateV2 = task.Status === "Rubric_V1";
-                const route = shouldCreateV2
-                  ? `/dashboard/tasks/${taskId}/rubric/enhance`
-                  : `/dashboard/tasks/${taskId}/rubric/v1`;
-                router.push(route);
-              }}
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              {task.Status === "Rubric_V1"
-                ? "Create V2 Rubric"
-                : "Create Rubric"}
-            </Button>
           </AlertDescription>
         </Alert>
       </div>
@@ -498,7 +475,7 @@ export default function HumanEvalGeminiPage() {
 
       {/* Main Evaluation Section: Form Container */}
       <div className="min-h-0 max-h-[800px]">
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <div className="space-y-6">
           {/* Gemini Response + Questions Grid */}
           <div className="grid gap-6 lg:grid-cols-2 min-h-0">
             {/* Left: Gemini Response */}
@@ -514,7 +491,7 @@ export default function HumanEvalGeminiPage() {
               </CardHeader>
               <CardContent>
                 <div className="prose dark:prose-invert max-w-none text-sm">
-                  <div className="bg-background/50 p-4 rounded-lg border border-border/30">
+                  <ScrollArea className="bg-background/50 p-4 rounded-lg border border-border/30 h-96">
                     <ReactMarkdown
                       components={{
                         h1: ({ children }) => (
@@ -565,7 +542,7 @@ export default function HumanEvalGeminiPage() {
                     >
                       {task.GeminiResponse}
                     </ReactMarkdown>
-                  </div>
+                  </ScrollArea>
                 </div>
               </CardContent>
             </Card>
@@ -582,7 +559,7 @@ export default function HumanEvalGeminiPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4  custom-scrollbar">
+                <ScrollArea className="h-96">
                   {rubricQuestions.map((question, index) => {
                     const currentValue = form.watch(
                       `evaluations.${question.key}`
@@ -597,9 +574,14 @@ export default function HumanEvalGeminiPage() {
                           <span className="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
                             {index + 1}
                           </span>
-                          <p className="text-sm font-medium leading-relaxed text-foreground">
-                            {question.question}
-                          </p>
+                          <div className="flex-1 space-y-2">
+                            <p className="text-sm font-medium leading-relaxed text-foreground">
+                              {question.question}
+                            </p>
+                            <Badge variant="outline" className="text-xs">
+                              {question.tag}
+                            </Badge>
+                          </div>
                         </div>
 
                         <div className="ml-9">
@@ -610,7 +592,6 @@ export default function HumanEvalGeminiPage() {
                                 `evaluations.${question.key}`,
                                 value as "Yes" | "No"
                               );
-                              form.trigger(`evaluations.${question.key}`);
                             }}
                             className="flex items-center space-x-6"
                           >
@@ -655,7 +636,7 @@ export default function HumanEvalGeminiPage() {
                       </div>
                     );
                   })}
-                </div>
+                </ScrollArea>
               </CardContent>
             </Card>
           </div>
@@ -665,7 +646,6 @@ export default function HumanEvalGeminiPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <Button
-                  type="button"
                   variant="outline"
                   onClick={() => router.push(`/dashboard/tasks/${taskId}`)}
                   disabled={isSubmitting}
@@ -680,7 +660,7 @@ export default function HumanEvalGeminiPage() {
                     completed
                   </div>
                   <Button
-                    type="submit"
+                    onClick={() => onSubmit(form.getValues())}
                     disabled={
                       isSubmitting || completedCount !== rubricQuestions.length
                     }
@@ -702,7 +682,7 @@ export default function HumanEvalGeminiPage() {
               </div>
             </CardContent>
           </Card>
-        </form>
+        </div>
       </div>
     </div>
   );

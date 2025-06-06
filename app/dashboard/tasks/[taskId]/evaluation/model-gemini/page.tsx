@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,7 +38,7 @@ import {
 import { api } from "@/lib/trpc/client";
 import {
   getStatusDisplayInfo,
-  getCurrentRubricContent,
+  getCurrentRubricVersionName,
   AirtableTaskRecord,
 } from "@/lib/schemas/task";
 import { generateRubricCheckerPrompt } from "@/lib/utils/rubric-prompts";
@@ -51,7 +52,7 @@ import {
   loadExistingEvaluationScores,
   type RubricQuestion,
 } from "@/lib/utils/evaluation-utils";
-import { EvaluationHeader } from "@/components/ui/RubricVersionBadge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ModelEvalFormData {
   taskId: string;
@@ -150,21 +151,22 @@ export default function ModelEvalGeminiPage() {
   });
 
   // Generate the checker prompt
-  const checkerPrompt =
-    task && getCurrentRubricContent(task as AirtableTaskRecord)
-      ? generateRubricCheckerPrompt(
-          {
-            Prompt: task.Prompt,
-            GeminiResponse: task.GeminiResponse,
-            GPTResponse: task.GPTResponse,
-          },
-          rubricQuestions.map((q) => ({
-            id: q.key,
-            question: q.question,
-            tag: `criterion_${q.number}`,
-          }))
-        )
-      : "";
+  const checkerPrompt = React.useMemo(() => {
+    if (!task || !rubricQuestions.length) return "";
+
+    return generateRubricCheckerPrompt(
+      {
+        Prompt: task.Prompt,
+        GeminiResponse: task.GeminiResponse,
+        GPTResponse: task.GPTResponse,
+      },
+      rubricQuestions.map((q) => ({
+        id: q.key,
+        question: q.question,
+        tag: q.tag,
+      }))
+    );
+  }, [task, rubricQuestions]);
 
   // Copy prompt to clipboard
   const copyPromptToClipboard = async () => {
@@ -351,18 +353,45 @@ export default function ModelEvalGeminiPage() {
       ? Math.round((completedCount / rubricQuestions.length) * 100)
       : 0;
 
+  const versionName = getCurrentRubricVersionName(task as AirtableTaskRecord);
+
   return (
     <div className="space-y-6 pb-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <EvaluationHeader
-          title="Model Evaluate Gemini"
-          stepNumber={5}
-          taskId={task.TaskID}
-          task={task as AirtableTaskRecord}
-          sectorInfo={sectorInfo}
-          questionCount={rubricQuestions.length}
-        />
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="space-y-1">
+            <div className="flex items-center space-x-3">
+              <h1 className="text-3xl font-bold tracking-tight text-foreground">
+                Model Evaluate Gemini
+              </h1>
+              <Badge
+                className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                variant="outline"
+              >
+                Step 5
+              </Badge>
+              <Badge
+                variant="outline"
+                className="text-purple-600 border-purple-600"
+              >
+                Using {versionName}
+              </Badge>
+            </div>
+            <div className="flex items-center space-x-4 text-sm text-muted-foreground">
+              <span>{task.TaskID}</span>
+              {sectorInfo && (
+                <div className="flex items-center space-x-1">
+                  <span>{sectorInfo.icon}</span>
+                  <span>{sectorInfo.label}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Instructions */}
@@ -411,7 +440,7 @@ export default function ModelEvalGeminiPage() {
             <div className="flex items-center space-x-2">
               <Bot className="h-5 w-5 text-purple-600" />
               <div>
-                <CardTitle>Rubric Checker Prompt</CardTitle>
+                <CardTitle>{versionName} Rubric Checker Prompt</CardTitle>
                 <CardDescription>
                   Copy this prompt to your AI tool to get model evaluation
                 </CardDescription>
@@ -490,7 +519,7 @@ export default function ModelEvalGeminiPage() {
 
       {/* Main Evaluation Section */}
       <div className="min-h-0">
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <div className="space-y-6">
           {/* Evaluation Questions */}
           <Card className="bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
             <CardHeader>
@@ -499,88 +528,94 @@ export default function ModelEvalGeminiPage() {
                 <span>Model Evaluation Input</span>
               </CardTitle>
               <CardDescription>
-                Input the model&apos;s Yes/No responses for each{" "}
-                {prerequisites.versionName} criterion
+                Input the model&apos;s Yes/No responses for each {versionName}{" "}
+                criterion
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {rubricQuestions.map((question, index) => {
-                const currentValue = form.watch(`evaluations.${question.key}`);
+              <ScrollArea className="h-96 space-y-4">
+                {rubricQuestions.map((question, index) => {
+                  const currentValue = form.watch(
+                    `evaluations.${question.key}`
+                  );
 
-                return (
-                  <div
-                    key={question.key}
-                    className={cn(
-                      "space-y-3 p-4 rounded-lg border transition-all duration-200",
-                      currentValue
-                        ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20"
-                        : "border-border/30 bg-background/30"
-                    )}
-                  >
-                    <div className="flex items-start space-x-3">
-                      <span className="bg-green-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
-                        {index + 1}
-                      </span>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium leading-relaxed text-foreground">
-                          {question.question}
-                        </p>
+                  return (
+                    <div
+                      key={question.key}
+                      className={cn(
+                        "space-y-3 p-4 rounded-lg border transition-all duration-200",
+                        currentValue
+                          ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20"
+                          : "border-border/30 bg-background/30"
+                      )}
+                    >
+                      <div className="flex items-start space-x-3">
+                        <span className="bg-green-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
+                          {index + 1}
+                        </span>
+                        <div className="flex-1 space-y-2">
+                          <p className="text-sm font-medium leading-relaxed text-foreground">
+                            {question.question}
+                          </p>
+                          <Badge variant="outline" className="text-xs">
+                            {question.tag}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div className="ml-9">
+                        <RadioGroup
+                          value={currentValue || ""}
+                          onValueChange={(value) => {
+                            form.setValue(
+                              `evaluations.${question.key}`,
+                              value as "Yes" | "No"
+                            );
+                          }}
+                          className="flex items-center space-x-6"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem
+                              value="Yes"
+                              id={`${question.key}-yes`}
+                              className="text-green-600 border-green-600"
+                            />
+                            <Label
+                              htmlFor={`${question.key}-yes`}
+                              className={cn(
+                                "flex items-center space-x-2 cursor-pointer text-sm",
+                                currentValue === "Yes" &&
+                                  "text-green-600 font-medium"
+                              )}
+                            >
+                              <ThumbsUp className="h-4 w-4" />
+                              <span>Yes</span>
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem
+                              value="No"
+                              id={`${question.key}-no`}
+                              className="text-red-600 border-red-600"
+                            />
+                            <Label
+                              htmlFor={`${question.key}-no`}
+                              className={cn(
+                                "flex items-center space-x-2 cursor-pointer text-sm",
+                                currentValue === "No" &&
+                                  "text-red-600 font-medium"
+                              )}
+                            >
+                              <ThumbsDown className="h-4 w-4" />
+                              <span>No</span>
+                            </Label>
+                          </div>
+                        </RadioGroup>
                       </div>
                     </div>
-
-                    <div className="ml-9">
-                      <RadioGroup
-                        value={currentValue || ""}
-                        onValueChange={(value) => {
-                          form.setValue(
-                            `evaluations.${question.key}`,
-                            value as "Yes" | "No"
-                          );
-                          form.trigger(`evaluations.${question.key}`);
-                        }}
-                        className="flex items-center space-x-6"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem
-                            value="Yes"
-                            id={`${question.key}-yes`}
-                            className="text-green-600 border-green-600"
-                          />
-                          <Label
-                            htmlFor={`${question.key}-yes`}
-                            className={cn(
-                              "flex items-center space-x-2 cursor-pointer text-sm",
-                              currentValue === "Yes" &&
-                                "text-green-600 font-medium"
-                            )}
-                          >
-                            <ThumbsUp className="h-4 w-4" />
-                            <span>Yes</span>
-                          </Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem
-                            value="No"
-                            id={`${question.key}-no`}
-                            className="text-red-600 border-red-600"
-                          />
-                          <Label
-                            htmlFor={`${question.key}-no`}
-                            className={cn(
-                              "flex items-center space-x-2 cursor-pointer text-sm",
-                              currentValue === "No" &&
-                                "text-red-600 font-medium"
-                            )}
-                          >
-                            <ThumbsDown className="h-4 w-4" />
-                            <span>No</span>
-                          </Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </ScrollArea>
             </CardContent>
           </Card>
 
@@ -589,7 +624,6 @@ export default function ModelEvalGeminiPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <Button
-                  type="button"
                   variant="outline"
                   onClick={() => router.push(`/dashboard/tasks/${taskId}`)}
                   disabled={isSubmitting}
@@ -606,7 +640,7 @@ export default function ModelEvalGeminiPage() {
                     </p>
                   </div>
                   <Button
-                    type="submit"
+                    onClick={() => onSubmit(form.getValues())}
                     disabled={
                       isSubmitting || completedCount !== rubricQuestions.length
                     }
@@ -628,7 +662,7 @@ export default function ModelEvalGeminiPage() {
               </div>
             </CardContent>
           </Card>
-        </form>
+        </div>
       </div>
     </div>
   );

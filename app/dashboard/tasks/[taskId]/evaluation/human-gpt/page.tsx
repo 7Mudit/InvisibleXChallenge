@@ -480,7 +480,7 @@ export default function HumanEvalGPTPage() {
               </CardHeader>
               <CardContent>
                 <div className="prose dark:prose-invert max-w-none text-sm">
-                  <div className="bg-background/50  p-4 rounded-lg border border-border/30">
+                  <div className="bg-background/50  space-y-4 wrap-anywhere p-4 rounded-lg border border-border/30">
                     <ReactMarkdown
                       components={{
                         // Custom markdown components for better styling
