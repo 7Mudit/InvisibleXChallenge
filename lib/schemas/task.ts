@@ -546,7 +546,7 @@ export function getCurrentRubricVersionName(task: AirtableTaskRecord): string {
 // Check if task needs rubric iteration
 export function needsRubricIteration(task: AirtableTaskRecord): boolean {
   return (
-    task.Status === "Model_Eval_Gemini" &&
+    task.Status === "Rubric_Enhancing" &&
     task.Alignment_Gemini !== undefined &&
     task.Alignment_Gemini < 80
   );
@@ -557,6 +557,7 @@ export function needsRubricIteration(task: AirtableTaskRecord): boolean {
 export interface WorkflowStep {
   status: TaskStatus;
   label: string;
+  title: string;
   description: string;
   estimatedTime: string;
   isIterative?: boolean;
@@ -571,12 +572,14 @@ export function getWorkflowSteps(task?: AirtableTaskRecord): WorkflowStep[] {
   const baseSteps: WorkflowStep[] = [
     {
       status: "Task_Creation",
+      title: "Task Creation",
       label: "Task Setup",
       description: "Create prompt and gather AI responses",
       estimatedTime: "30-45 minutes",
     },
     {
       status: "Rubric_V1",
+      title: "Rubric V1",
       label: "Create V1 Rubric",
       description: "Generate initial rubric using AI prompt",
       estimatedTime: "10-15 minutes",
@@ -587,6 +590,7 @@ export function getWorkflowSteps(task?: AirtableTaskRecord): WorkflowStep[] {
   if (task?.Status === "Rubric_V1") {
     baseSteps.push({
       status: "Rubric_V2",
+      title: "Rubric V2",
       label: "Enhance to V2 Rubric",
       description: "Refine and improve the initial rubric",
       estimatedTime: "15-20 minutes",
@@ -599,6 +603,7 @@ export function getWorkflowSteps(task?: AirtableTaskRecord): WorkflowStep[] {
     baseSteps.push({
       status: "Rubric_Enhancing",
       label: `Create V${targetVersion} Rubric`,
+      title: `Rubric V${targetVersion}`,
       description: `Enhance rubric for better alignment (was ${alignment}%)`,
       estimatedTime: "15-25 minutes",
       isIterative: true,
@@ -612,6 +617,7 @@ export function getWorkflowSteps(task?: AirtableTaskRecord): WorkflowStep[] {
     // Standard V2 step if not in iteration mode
     baseSteps.push({
       status: "Rubric_V2",
+      title: "Rubric V2",
       label: "V2 Rubric",
       description: "Enhanced rubric ready",
       estimatedTime: "Complete",
@@ -622,30 +628,35 @@ export function getWorkflowSteps(task?: AirtableTaskRecord): WorkflowStep[] {
   baseSteps.push(
     {
       status: "Human_Eval_Gemini",
+      title: "Human Eval Gemini",
       label: "Human Evaluate Gemini",
       description: "Manually evaluate Gemini's response",
       estimatedTime: "10-15 minutes",
     },
     {
       status: "Model_Eval_Gemini",
+      title: "Model Eval Gemini",
       label: "Model Evaluate Gemini",
       description: "Get AI to evaluate Gemini's response",
       estimatedTime: "5-10 minutes",
     },
     {
       status: "Human_Eval_GPT",
+      title: "Human Eval GPT",
       label: "Human Evaluate GPT",
       description: "Manually evaluate GPT's response",
       estimatedTime: "10-15 minutes",
     },
     {
       status: "Model_Eval_GPT",
+      title: "Model Eval GPT",
       label: "Model Evaluate GPT",
       description: "Get AI to evaluate GPT's response",
       estimatedTime: "5-10 minutes",
     },
     {
       status: "Completed",
+      title: "Completed",
       label: "Evaluation Complete",
       description: "All evaluations finished",
       estimatedTime: "Complete",

@@ -302,9 +302,9 @@ export default function TaskDetailsPage() {
       title: "Project Setup",
       description: "Initial task creation and preparation",
       icon: FileText,
-      color: "text-blue-600",
+      color: "text-slate-600 dark:text-slate-400",
       bgGradient:
-        "from-blue-50/50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/20",
+        "from-slate-50/50 to-slate-100/50 dark:from-slate-900/20 dark:to-slate-800/20",
       steps: stepCards.filter((step) => step.category === "setup"),
     },
     {
@@ -312,9 +312,9 @@ export default function TaskDetailsPage() {
       title: "Rubric Development",
       description: "Create and enhance evaluation criteria",
       icon: Edit,
-      color: "text-purple-600",
+      color: "text-teal-600 dark:text-teal-400",
       bgGradient:
-        "from-purple-50/50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/20",
+        "from-teal-50/50 to-teal-100/50 dark:from-teal-900/20 dark:to-teal-800/20",
       steps: stepCards.filter((step) => step.category === "rubric"),
     },
     {
@@ -322,9 +322,9 @@ export default function TaskDetailsPage() {
       title: "Response Evaluation",
       description: "Evaluate AI responses using the rubric",
       icon: BarChart3,
-      color: "text-emerald-600",
+      color: "text-sky-600 dark:text-sky-400",
       bgGradient:
-        "from-indigo-50/50 to-indigo-100/50 dark:from-indigo-950/20 dark:to-indigo-900/20",
+        "from-sky-50/50 to-sky-100/50 dark:from-sky-900/20 dark:to-sky-800/20",
       steps: stepCards.filter((step) => step.category === "evaluation"),
     },
     {
@@ -332,9 +332,9 @@ export default function TaskDetailsPage() {
       title: "Task Completion",
       description: "Review results and export data",
       icon: CheckCircle,
-      color: "text-green-600",
+      color: "text-green-600 dark:text-green-400",
       bgGradient:
-        "from-green-50/50 to-green-100/50 dark:from-green-950/20 dark:to-green-900/20",
+        "from-green-50/50 to-green-100/50 dark:from-green-900/20 dark:to-green-800/20",
       steps: stepCards.filter((step) => step.category === "completion"),
     },
   ];
@@ -348,18 +348,20 @@ export default function TaskDetailsPage() {
 
   // Step card styling functions
   const getStepCardStyle = (state: StepCardState, isIterative?: boolean) => {
-    const baseStyles = "transition-all duration-200 hover:shadow-md";
+    const baseStyles =
+      "transition-all duration-300 rounded-lg border hover:shadow-lg"; // Added rounded-lg, border (color will be specific to state), hover:shadow-lg
 
     switch (state) {
       case "completed":
-        return `${baseStyles} `;
+        return `${baseStyles} border-green-500/70 dark:border-green-600/70 bg-green-50/40 dark:bg-green-900/30 text-green-700 dark:text-green-300`;
       case "current":
-        return `${baseStyles} `;
+        return `${baseStyles} border-teal-500/70 dark:border-teal-600/70 bg-teal-50/40 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 shadow-md dark:shadow-teal-950/30`;
       case "needs_revision":
-        return `${baseStyles}  ${isIterative ? "animate-pulse" : ""}`;
+        const revisionPulse = isIterative ? "animate-pulse" : "";
+        return `${baseStyles} border-amber-500/70 dark:border-amber-600/70 bg-amber-50/40 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 ${revisionPulse}`;
       case "locked":
       default:
-        return `${baseStyles} bg-muted/30 border-muted opacity-60`;
+        return `${baseStyles} border-slate-300 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/20 text-slate-500 dark:text-slate-400 opacity-70 hover:shadow-none`;
     }
   };
 
@@ -370,18 +372,20 @@ export default function TaskDetailsPage() {
   ) => {
     switch (state) {
       case "completed":
-        return <CheckCircle className="h-5 w-5 text-green-600" />;
+        return (
+          <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-500" />
+        );
       case "current":
-        return <Play className="h-5 w-5 text-primary" />;
+        return <Play className="h-5 w-5 text-teal-600 dark:text-teal-500" />;
       case "needs_revision":
         return isIterative ? (
-          <RefreshCw className="h-5 w-5 text-red-600 animate-spin" />
+          <RefreshCw className="h-5 w-5 text-amber-600 dark:text-amber-500 animate-spin" />
         ) : (
-          <AlertTriangle className="h-5 w-5 text-red-600" />
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-500" />
         );
       case "locked":
       default:
-        return <Lock className="h-5 w-5 text-muted-foreground" />;
+        return <Lock className="h-5 w-5 text-slate-500 dark:text-slate-400" />;
     }
   };
 
@@ -412,8 +416,12 @@ export default function TaskDetailsPage() {
         );
       case "needs_revision":
         return (
-          <Button variant="destructive" {...buttonProps}>
-            <AlertTriangle className="h-4 w-4 mr-2" />
+          <Button
+            variant="outline"
+            {...buttonProps}
+            className="border-amber-500/80 hover:bg-amber-100/50 dark:border-amber-600/80 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:text-amber-800 dark:hover:text-amber-200"
+          >
+            <AlertTriangle className="h-4 w-4 mr-2 text-amber-700 dark:text-amber-300" />{" "}
             {step.isIterative
               ? `Enhance to V${step.iterationInfo?.targetVersion}`
               : "Revise"}
@@ -449,7 +457,7 @@ export default function TaskDetailsPage() {
               {currentVersion > 1 && (
                 <Badge
                   variant="outline"
-                  className="text-purple-600 border-purple-600"
+                  className="text-teal-600 dark:text-teal-400 border-teal-500 dark:border-teal-600"
                 >
                   {versionName}
                 </Badge>
@@ -489,7 +497,7 @@ export default function TaskDetailsPage() {
       </div>
 
       {/* Overall Progress */}
-      <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+      <Card className="bg-gradient-to-br from-teal-50/30 to-teal-100/30 dark:from-teal-900/20 dark:to-teal-800/20 border-teal-500/30 dark:border-teal-700/30">
         <CardContent className="p-6">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -502,7 +510,7 @@ export default function TaskDetailsPage() {
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-3xl font-bold text-primary">
+                <p className="text-3xl font-bold text-teal-600 dark:text-teal-400">
                   {Math.round(progress)}%
                 </p>
                 <p className="text-sm text-muted-foreground">Complete</p>
@@ -512,11 +520,11 @@ export default function TaskDetailsPage() {
 
             {currentStepCard && (
               <div className="flex items-center space-x-2 text-sm">
-                <Target className="h-4 w-4 text-primary" />
+                <Target className="h-4 w-4 text-teal-600 dark:text-teal-400" />
                 <span className="text-muted-foreground">Current step:</span>
                 <Badge
                   variant="outline"
-                  className="text-primary border-primary"
+                  className="text-teal-600 dark:text-teal-400 border-teal-500 dark:border-teal-600"
                 >
                   {currentStepCard.title}
                 </Badge>
@@ -551,7 +559,7 @@ export default function TaskDetailsPage() {
               onClick={() =>
                 router.push(`/dashboard/tasks/${taskId}/rubric/enhance`)
               }
-              className="mt-2"
+              className="mt-2 border-amber-500/80 hover:bg-amber-100/50 dark:border-amber-600/80 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:text-amber-800 dark:hover:text-amber-200"
             >
               <Zap className="h-4 w-4 mr-2" />
               Enhance Rubric Now
@@ -562,10 +570,10 @@ export default function TaskDetailsPage() {
 
       {/* Alignment Progress (for iterations) */}
       {alignmentHistory.length > 0 && (
-        <Card className="bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
+        <Card className="bg-gradient-to-br from-sky-50/40 to-sky-100/40 dark:from-sky-900/20 dark:to-sky-800/20 border-sky-500/30 dark:border-sky-700/30">
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
-              <History className="h-5 w-5 text-blue-600" />
+              <History className="h-5 w-5 text-sky-600 dark:text-sky-400" />
               <span>Rubric Iteration Progress</span>
             </CardTitle>
             <CardDescription>
@@ -599,7 +607,7 @@ export default function TaskDetailsPage() {
                     entry.alignment < 80 && (
                       <Badge
                         variant="outline"
-                        className="text-xs mt-1 text-amber-600 border-amber-600"
+                        className="text-xs mt-1 text-amber-600 dark:text-amber-400 border-amber-500 dark:border-amber-600"
                       >
                         Current
                       </Badge>
@@ -789,7 +797,7 @@ export default function TaskDetailsPage() {
                                 {step.isIterative && step.iterationInfo && (
                                   <Badge
                                     variant="outline"
-                                    className="text-xs text-amber-600 border-amber-600"
+                                    className="text-xs text-amber-600 dark:text-amber-400 border-amber-500 dark:border-amber-600"
                                   >
                                     V{step.iterationInfo.targetVersion}
                                   </Badge>
@@ -810,7 +818,7 @@ export default function TaskDetailsPage() {
       </div>
 
       {/* Task Overview Card */}
-      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+      <Card className="bg-slate-25/50 dark:bg-slate-900/20 backdrop-blur-sm border-slate-200 dark:border-slate-800/30">
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <FileText className="h-5 w-5" />
@@ -858,8 +866,8 @@ export default function TaskDetailsPage() {
                     className={cn(
                       "text-xs",
                       (task.Alignment_Gemini as number) >= 80
-                        ? "text-green-600 border-green-600"
-                        : "text-amber-600 border-amber-600"
+                        ? "text-green-600 dark:text-green-400 border-green-500 dark:border-green-600"
+                        : "text-amber-600 dark:text-amber-400 border-amber-500 dark:border-amber-600"
                     )}
                   >
                     {`${task.Alignment_Gemini}% aligned`}

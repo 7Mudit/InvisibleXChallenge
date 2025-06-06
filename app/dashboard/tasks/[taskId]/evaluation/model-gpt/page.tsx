@@ -30,7 +30,6 @@ import {
   ThumbsDown,
   Eye,
   EyeOff,
-  BarChart3,
   Target,
   Trophy,
   Flag,
@@ -48,7 +47,6 @@ import {
   parseCurrentRubricQuestions,
   getEvaluationPrerequisites,
   loadExistingEvaluationScores,
-  getComparisonScores,
   type RubricQuestion,
 } from "@/lib/utils/evaluation-utils";
 
@@ -67,9 +65,6 @@ export default function ModelEvalGPTPage() {
   const [promptVisible, setPromptVisible] = useState(false);
   const [rubricQuestions, setRubricQuestions] = useState<RubricQuestion[]>([]);
   const [completedCount, setCompletedCount] = useState(0);
-  const [humanScores, setHumanScores] = useState<Record<string, "Yes" | "No">>(
-    {}
-  );
 
   // Fetch task data
   const {
@@ -97,13 +92,6 @@ export default function ModelEvalGPTPage() {
     if (task) {
       const questions = parseCurrentRubricQuestions(task as AirtableTaskRecord);
       setRubricQuestions(questions);
-
-      // Load human scores for comparison
-      const humanEvals = getComparisonScores(
-        task as AirtableTaskRecord,
-        "model-gpt"
-      );
-      setHumanScores(humanEvals);
 
       // Load existing model evaluations if available
       const existingEvals = loadExistingEvaluationScores(
@@ -175,27 +163,6 @@ export default function ModelEvalGPTPage() {
       console.error("Error copying the prompt", error);
       toast.error("Failed to copy prompt to clipboard");
     }
-  };
-
-  // Calculate current alignment for preview
-  const calculateCurrentAlignment = () => {
-    const modelEvals = form.watch("evaluations") || {};
-    const answeredQuestions = rubricQuestions.filter(
-      (q) => humanScores[q.key] && modelEvals[q.key]
-    );
-
-    if (answeredQuestions.length === 0)
-      return { percentage: 0, aligned: 0, total: 0 };
-
-    const aligned = answeredQuestions.filter(
-      (q) => humanScores[q.key] === modelEvals[q.key]
-    ).length;
-
-    return {
-      percentage: Math.round((aligned / answeredQuestions.length) * 100),
-      aligned,
-      total: answeredQuestions.length,
-    };
   };
 
   // Form submission
@@ -284,7 +251,7 @@ export default function ModelEvalGPTPage() {
   }
 
   // Check if task is in correct state
-  if ("Human_Eval_GPT" !== task.Status) {
+  if (task.Status !== "Human_Eval_GPT") {
     return (
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
@@ -366,8 +333,6 @@ export default function ModelEvalGPTPage() {
       ? Math.round((completedCount / rubricQuestions.length) * 100)
       : 0;
 
-  const currentAlignment = calculateCurrentAlignment();
-
   return (
     <div className="space-y-6 pb-6">
       {/* Header */}
@@ -415,104 +380,56 @@ export default function ModelEvalGPTPage() {
         </AlertTitle>
         <AlertDescription className="text-green-700 dark:text-green-300">
           This is the last step! After completing the GPT model evaluation using{" "}
-          {prerequisites.versionName}, your task will be marked as complete
-          regardless of alignment score.
+          {prerequisites.versionName}, your task will be marked as complete.
         </AlertDescription>
       </Alert>
 
-      {/* Top Section: Instructions and Alignment Preview */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Instructions */}
-        <Card className="bg-gradient-to-br from-amber-50/50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200 dark:border-amber-800">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Target className="h-5 w-5 text-amber-600" />
-              <span>Model Evaluation Process</span>
-            </CardTitle>
-            <CardDescription>
-              Final step: get the model&apos;s evaluation of the GPT response
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="flex items-start space-x-2">
-              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
-                1
-              </span>
-              <span>
-                Copy the {prerequisites.versionName} rubric checker prompt below
-                to your AI tool
-              </span>
-            </div>
-            <div className="flex items-start space-x-2">
-              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
-                2
-              </span>
-              <span>
-                The AI will evaluate the GPT response with Yes/No for each
-                criterion
-              </span>
-            </div>
-            <div className="flex items-start space-x-2">
-              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
-                3
-              </span>
-              <span>Input the model&apos;s responses in the form below</span>
-            </div>
-            <div className="flex items-start space-x-2">
-              <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
-                4
-              </span>
-              <span>
-                Complete the task - no minimum alignment required for GPT!
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Current Alignment Preview */}
-        <Card className="bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <BarChart3 className="h-5 w-5 text-blue-600" />
-              <span>GPT Alignment Preview</span>
-            </CardTitle>
-            <CardDescription>
-              Real-time alignment between human and model scores for GPT
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Current GPT Alignment
-                </p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {currentAlignment.percentage}%
-                </p>
-              </div>
-              <div className="text-right text-sm text-muted-foreground">
-                <p>
-                  {currentAlignment.aligned} of {currentAlignment.total} aligned
-                </p>
-                <p className="font-medium text-blue-600">
-                  📊 For analysis only
-                </p>
-              </div>
-            </div>
-            <Progress value={currentAlignment.percentage} className="h-2" />
-
-            {task.Alignment_Gemini && (
-              <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">
-                <p>
-                  <strong>Gemini alignment:</strong>{" "}
-                  {`${task.Alignment_Gemini}%`} |{" "}
-                  <strong>GPT alignment:</strong> {currentAlignment.percentage}%
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* Instructions */}
+      <Card className="bg-gradient-to-br from-amber-50/50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200 dark:border-amber-800">
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Target className="h-5 w-5 text-amber-600" />
+            <span>Model Evaluation Process</span>
+          </CardTitle>
+          <CardDescription>
+            Final step: get the model&apos;s evaluation of the GPT response
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="flex items-start space-x-2">
+            <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+              1
+            </span>
+            <span>
+              Copy the {prerequisites.versionName} rubric checker prompt below
+              to your AI tool
+            </span>
+          </div>
+          <div className="flex items-start space-x-2">
+            <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+              2
+            </span>
+            <span>
+              The AI will evaluate the GPT response with Yes/No for each
+              criterion
+            </span>
+          </div>
+          <div className="flex items-start space-x-2">
+            <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+              3
+            </span>
+            <span>Input the model&apos;s responses in the form below</span>
+          </div>
+          <div className="flex items-start space-x-2">
+            <span className="bg-amber-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5">
+              4
+            </span>
+            <span>
+              Complete the task - no minimum alignment required for GPT!
+            </span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Rubric Checker Prompt */}
       <Card className="bg-gradient-to-br from-purple-50/50 to-indigo-50/50 dark:from-purple-950/20 dark:to-indigo-950/20 border-purple-200 dark:border-purple-800">
@@ -618,22 +535,15 @@ export default function ModelEvalGPTPage() {
             <CardContent className="space-y-4">
               {rubricQuestions.map((question, index) => {
                 const currentValue = form.watch(`evaluations.${question.key}`);
-                const humanValue = humanScores[question.key];
-                const isAligned =
-                  currentValue && humanValue && currentValue === humanValue;
-                const isMisaligned =
-                  currentValue && humanValue && currentValue !== humanValue;
 
                 return (
                   <div
                     key={question.key}
                     className={cn(
                       "space-y-3 p-4 rounded-lg border transition-all duration-200",
-                      isAligned &&
-                        "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20",
-                      isMisaligned &&
-                        "border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-950/20",
-                      !currentValue && "border-border/30 bg-background/30"
+                      currentValue
+                        ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20"
+                        : "border-border/30 bg-background/30"
                     )}
                   >
                     <div className="flex items-start space-x-3">
@@ -644,24 +554,6 @@ export default function ModelEvalGPTPage() {
                         <p className="text-sm font-medium leading-relaxed text-foreground">
                           {question.question}
                         </p>
-                        {humanValue && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Human score for GPT:{" "}
-                            <span className="font-medium">{humanValue}</span>
-                            {currentValue && (
-                              <span
-                                className={cn(
-                                  "ml-2",
-                                  isAligned && "text-green-600",
-                                  isMisaligned && "text-red-600"
-                                )}
-                              >
-                                {isAligned && "✓ Aligned"}
-                                {isMisaligned && "⚠ Misaligned"}
-                              </span>
-                            )}
-                          </p>
-                        )}
                       </div>
                     </div>
 
@@ -741,11 +633,6 @@ export default function ModelEvalGPTPage() {
                       {completedCount}/{rubricQuestions.length} questions
                       completed
                     </p>
-                    {currentAlignment.total > 0 && (
-                      <p className="font-medium text-blue-600">
-                        GPT Alignment: {currentAlignment.percentage}%
-                      </p>
-                    )}
                   </div>
                   <Button
                     type="submit"
