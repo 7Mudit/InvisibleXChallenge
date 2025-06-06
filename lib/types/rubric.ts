@@ -29,8 +29,8 @@ export interface MisalignedItem {
   id: string;
   question: string;
   tag: string;
-  humanScore: boolean;
-  aiScore: boolean;
+  human_score: string;
+  model_score: string;
 }
 
 //  Updated RubricItemSchema with tag validation

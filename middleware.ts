@@ -48,13 +48,6 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(redirectURL);
   }
 
-  if (!role) {
-    console.warn("User has no role assigned:", { url, email, userId });
-    const unauthorizedUrl = new URL("/unauthorized", req.url);
-    unauthorizedUrl.searchParams.set("reason", "role_assignment_pending");
-    return NextResponse.redirect(unauthorizedUrl);
-  }
-
   // admin route protection
   if (isAdminRoute(req)) {
     const hasAdminAccess = canAccessAdminRoutes(role as UserRole);

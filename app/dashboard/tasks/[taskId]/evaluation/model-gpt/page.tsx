@@ -142,8 +142,8 @@ export default function ModelEvalGPTPage() {
     return generateRubricCheckerPrompt(
       {
         Prompt: task.Prompt,
-        GeminiResponse: task.GeminiResponse,
-        GPTResponse: task.GPTResponse,
+        GeminiResponse: task.GPTResponse,
+        GPTResponse: task.GeminiResponse,
       },
       rubricQuestions.map((q) => ({
         id: q.key,

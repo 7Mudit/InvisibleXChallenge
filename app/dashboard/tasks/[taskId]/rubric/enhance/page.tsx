@@ -42,9 +42,11 @@ import {
   AirtableTaskRecord,
   AlignmentHistoryEntry,
   parseRubricContent,
+  needsRubricIteration,
 } from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { cn } from "@/lib/utils";
+import { MisalignedItem } from "@/lib/types/rubric";
 
 interface RubricEnhanceFormData {
   taskId: string;
@@ -320,6 +322,7 @@ export default function RubricEnhancePage() {
 
   const currentVersion = task.Current_Rubric_Version || 1;
   const isCreatingV2 = task.Status === "Rubric_V1";
+  const isIterating = task?.Status === "Rubric_Enhancing";
   const targetVersion = isCreatingV2 ? 2 : currentVersion + 1;
   const versionName = getCurrentRubricVersionName(task as AirtableTaskRecord);
   const sectorInfo = professionalSectors.find(
@@ -337,6 +340,24 @@ export default function RubricEnhancePage() {
   }
 
   const lastAlignment = alignmentHistory[alignmentHistory.length - 1];
+  const needsIteration = needsRubricIteration(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (task as AirtableTaskRecord) || ({} as any)
+  );
+
+  // Parse misaligned items for enhancement guidanceAdd commentMore actions
+  let misalignedItems: MisalignedItem[] = [];
+  if (
+    task?.Misaligned_Gemini &&
+    needsIteration &&
+    typeof task.Misaligned_Gemini === "string"
+  ) {
+    try {
+      misalignedItems = JSON.parse(task.Misaligned_Gemini);
+    } catch (error) {
+      console.error("Error parsing misaligned items:", error);
+    }
+  }
 
   return (
     <div className="space-y-6 pb-6">
@@ -521,6 +542,74 @@ export default function RubricEnhancePage() {
           </div>
         </CardContent>
       </Card>
+      {/* Misaligned Items Detail - Only for iterations */}
+      {isIterating && misalignedItems.length > 0 && (
+        <Card className="bg-gradient-to-br from-red-50/50 to-red-100/50 dark:from-red-950/20 dark:to-red-900/20 border-red-200 dark:border-red-800">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <span>Misaligned Items ({misalignedItems.length})</span>
+            </CardTitle>
+            <CardDescription>
+              Items where human and model disagreed - these need your attention
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+              {misalignedItems.map((item, index) => (
+                <div
+                  key={`${item.id}-detail-${index}`}
+                  className="p-3 bg-red-50/50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800"
+                >
+                  <div className="flex items-start space-x-2">
+                    <span className="bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
+                      {index + 1}
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {item.id}: {item.question}
+                      </p>
+                      <div className="flex items-center space-x-4 mt-1 text-xs">
+                        <span className="text-muted-foreground">
+                          Human:{" "}
+                          <span
+                            className={cn(
+                              "font-medium",
+                              item.human_score === "Yes"
+                                ? "text-green-600"
+                                : "text-red-600"
+                            )}
+                          >
+                            {item.human_score}
+                          </span>
+                        </span>
+                        <span className="text-muted-foreground">
+                          Model:{" "}
+                          <span
+                            className={cn(
+                              "font-medium",
+                              item.model_score === "Yes"
+                                ? "text-green-600"
+                                : "text-red-600"
+                            )}
+                          >
+                            {item.model_score}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="text-xs text-muted-foreground mt-3 p-2 bg-red-50/30 dark:bg-red-950/20 rounded">
+              <strong>Enhancement tips:</strong> Make these questions more
+              specific, break complex criteria into simpler parts, or clarify
+              ambiguous terms.
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Main Left-Right Layout */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -554,26 +643,49 @@ export default function RubricEnhancePage() {
             <div className="">
               {previousRubricQuestions.length > 0 ? (
                 <div className="space-y-3">
-                  {previousRubricQuestions.map((question, index) => (
-                    <div
-                      key={question.key}
-                      className="p-3 bg-background/50 rounded-lg border border-border/30"
-                    >
-                      <div className="flex items-start space-x-3">
-                        <span className="bg-slate-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0">
-                          {index + 1}
-                        </span>
-                        <div className="flex-1 space-y-2">
-                          <p className="text-sm font-medium leading-relaxed text-foreground">
-                            {question.question}
-                          </p>
-                          <Badge variant="outline" className="text-xs">
-                            {question.tag}
-                          </Badge>
+                  {previousRubricQuestions.map((question, index) => {
+                    const isMisaligned = misalignedItems.some(
+                      (m) => m.id === question.key
+                    );
+                    return (
+                      <div
+                        key={question.key}
+                        className="p-3 bg-background/50 rounded-lg border border-border/30"
+                      >
+                        <div className="flex items-start space-x-3">
+                          <span
+                            className={cn(
+                              "bg-slate-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-medium mt-0.5 shrink-0",
+                              isMisaligned
+                                ? "bg-red-600 text-white"
+                                : "bg-blue-600 text-white"
+                            )}
+                          >
+                            {index + 1}
+                          </span>
+                          <div className="flex-1 space-y-2">
+                            <p className="text-sm font-medium leading-relaxed text-foreground">
+                              {question.question}
+                            </p>
+                            <Badge variant="outline" className="text-xs">
+                              {question.tag}
+                            </Badge>
+                            {isMisaligned && (
+                              <div className="ml-2 mt-2">
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs text-red-500 dark:text-red-300 border-red-600"
+                                >
+                                  <AlertTriangle className="w-3 h-3 mr-1" />
+                                  Needs attention
+                                </Badge>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full space-y-4 text-center">
