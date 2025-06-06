@@ -21,6 +21,7 @@ import {
   RubricEnhanceInputSchema,
   getCurrentRubricContent,
   addAlignmentToHistory,
+  parseRubricContent,
 } from "@/lib/schemas/task";
 import { generateTaskId } from "@/lib/utils/task-utils";
 import { clerkClient } from "@clerk/nextjs/server";
@@ -294,12 +295,38 @@ export const tasksRouter = router({
           });
         }
 
-        // Validate rubric JSON format
+        //  Validate new rubric JSON format with question/tag structure
         const validation = validateRubricJSON(input.rubricV1);
         if (!validation.isValid) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: `Invalid rubric format: ${validation.errors.join(", ")}`,
+          });
+        }
+
+        // Additional validation to ensure it's the new format
+        try {
+          const parsed = JSON.parse(input.rubricV1);
+          const isNewFormat = Object.values(parsed).every(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (item: any) =>
+              typeof item === "object" &&
+              typeof item.question === "string" &&
+              typeof item.tag === "string"
+          );
+
+          if (!isNewFormat) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Rubric must be in new format with question and tag properties for each item",
+            });
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (parseError) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid JSON format or structure",
           });
         }
 
@@ -330,12 +357,12 @@ export const tasksRouter = router({
           });
         }
 
-        // Update the record
+        // Update the record with new format
         const updatedRecords = await ctx.airtable.tasksTable.update([
           {
             id: existingRecord.id,
             fields: {
-              Rubric_V1: input.rubricV1,
+              Rubric_V1: input.rubricV1, // Now contains new format JSON
               Status: "Rubric_V1" as TaskStatus,
             },
           },
@@ -351,7 +378,7 @@ export const tasksRouter = router({
         }
 
         console.log(
-          "V1 Rubric saved:",
+          "V1 Rubric saved (new format):",
           input.taskId,
           "Items:",
           validation.rubricCount
@@ -359,7 +386,7 @@ export const tasksRouter = router({
 
         return {
           success: true,
-          message: `V1 Rubric saved successfully with ${validation.rubricCount} items!`,
+          message: `V1 Rubric saved successfully with ${validation.rubricCount} items in new format!`,
           task: {
             id: updatedRecord.id,
             ...updatedRecord.fields,
@@ -376,7 +403,7 @@ export const tasksRouter = router({
         });
       }
     }),
-  // here we will start enhancing the rubrics...
+
   // Fix the updateRubricEnhanced mutation in your router
 
   updateRubricEnhanced: protectedProcedure
@@ -396,11 +423,38 @@ export const tasksRouter = router({
           });
         }
 
+        // UPDATED: Validate new rubric JSON format with question/tag structure
         const validation = validateRubricJSON(input.rubricContent);
         if (!validation.isValid) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: `Invalid rubric format: ${validation.errors.join(", ")}`,
+          });
+        }
+
+        // UPDATED: Additional validation to ensure it's the new format
+        try {
+          const parsed = JSON.parse(input.rubricContent);
+          const isNewFormat = Object.values(parsed).every(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (item: any) =>
+              typeof item === "object" &&
+              typeof item.question === "string" &&
+              typeof item.tag === "string"
+          );
+
+          if (!isNewFormat) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Rubric must be in new format with question and tag properties for each item",
+            });
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (parseError) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid JSON format or structure",
           });
         }
 
@@ -460,7 +514,7 @@ export const tasksRouter = router({
         // Update the record with the new version
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updateFields: any = {
-          [rubricFieldName]: input.rubricContent,
+          [rubricFieldName]: input.rubricContent, // New format JSON
           Current_Rubric_Version: input.targetVersion,
           Status: nextStatus,
         };
@@ -482,7 +536,7 @@ export const tasksRouter = router({
         }
 
         console.log(
-          `V${input.targetVersion} Rubric saved:`,
+          `V${input.targetVersion} Rubric saved (new format):`,
           input.taskId,
           "Items:",
           validation.rubricCount,
@@ -494,7 +548,7 @@ export const tasksRouter = router({
           success: true,
           message: `V${input.targetVersion} Rubric ${
             isCreatingV2 ? "created" : "enhanced"
-          } successfully with ${validation.rubricCount} items!`,
+          } successfully with ${validation.rubricCount} items in new format!`,
           version: input.targetVersion,
           isCreatingV2,
           task: {
@@ -668,18 +722,38 @@ export const tasksRouter = router({
           });
         }
 
-        // Get current rubric and human scores
-        const currentRubric = getCurrentRubricContent(existingRecord.fields);
-        if (!currentRubric || !existingRecord.fields.Human_Eval_Gemini) {
+        // Get current rubric in new format and validate
+        const currentRubricContent = getCurrentRubricContent(
+          existingRecord.fields
+        );
+        if (!currentRubricContent || !existingRecord.fields.Human_Eval_Gemini) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Current rubric and Human evaluation are required.",
           });
         }
 
+        // Validate that rubric is in new format
+        try {
+          const rubric = parseRubricContent(currentRubricContent);
+          if (!rubric) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Current rubric is not in the correct new format with question/tag structure.",
+            });
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Failed to parse current rubric - must be in new format.",
+          });
+        }
+
         const scoreValidation = validateEvaluationScores(
           input.modelScores,
-          currentRubric
+          currentRubricContent
         );
         if (!scoreValidation.isValid) {
           throw new TRPCError({
@@ -690,11 +764,11 @@ export const tasksRouter = router({
           });
         }
 
-        // Calculate alignment
+        //  Calculate alignment using new format
         const alignment = calculateAlignment(
           existingRecord.fields.Human_Eval_Gemini,
           input.modelScores,
-          currentRubric
+          currentRubricContent
         );
 
         const currentVersion =
@@ -747,7 +821,7 @@ export const tasksRouter = router({
         }
 
         console.log(
-          "Model evaluation for Gemini saved:",
+          "Model evaluation for Gemini saved (new format):",
           input.taskId,
           "Alignment:",
           alignment.percentage + "%",

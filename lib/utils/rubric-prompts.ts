@@ -32,7 +32,7 @@ Given a *question* and a *model's answer*, you will come up with rubrics which a
 
 The rubrics must be output as a JSON object within \`<rubrics></rubrics>\` tags. Each rubric will be one entry in the JSON.
 
-Each entry will contain a rubric number (as the key) and the rubric text (as the value), as shown in the examples below.
+Each entry will contain a rubric number (as the key) and an object with "question" and "tag" properties, as shown in the examples below.
 
 The detailed description of the task is below.
 
@@ -64,9 +64,15 @@ How to write rubrics:
 
 10. If there are conflicting instructions, only write the rubric that is closest to the end of the *question*.
 
+11. **NEW: Tags** - Each rubric must include a descriptive "tag" that categorizes what capability or aspect the rubric is checking. Tags should be:
+    - 1-20 characters long
+    - Descriptive of the criterion being evaluated
+    - Use lowercase with underscores for multi-word tags (e.g., "clarity", "examples", "code_quality")
+    - Common tags include: clarity, completeness, accuracy, examples, format, structure, relevance, detail, sources, logic
+
 **IMPORTANT** You must follow all the guidelines mentioned above to write rubrics. Failure to do so will have really bad consequences.
 
-Below are some examples of rubric decompositions:
+Below are some examples of rubric decompositions with the new format:
 
 **Example 1 (Data-Science & Analysis - Finding inconsistencies)**
 
@@ -89,10 +95,22 @@ CustomerID,OrderDate,TotalAmount,PaymentMethod
 
 <rubrics>
 {
-  "rubric_1": "Does the response identify the inconsistent data type ('Two Hundred') in the \`TotalAmount\` column?",
-  "rubric_2": "Does the response identify the inconsistent formatting ('45' missing decimal places) in \`TotalAmount\`?",
-  "rubric_3": "Does the response identify the duplicate entries for CustomerID 101?",
-  "rubric_4": "Does the response *only* list inconsistencies and *not* attempt to correct them?"
+  "rubric_1": {
+    "question": "Does the response identify the inconsistent data type ('Two Hundred') in the \`TotalAmount\` column?",
+    "tag": "data_types"
+  },
+  "rubric_2": {
+    "question": "Does the response identify the inconsistent formatting ('45' missing decimal places) in \`TotalAmount\`?",
+    "tag": "formatting"
+  },
+  "rubric_3": {
+    "question": "Does the response identify the duplicate entries for CustomerID 101?",
+    "tag": "duplicates"
+  },
+  "rubric_4": {
+    "question": "Does the response *only* list inconsistencies and *not* attempt to correct them?",
+    "tag": "instructions"
+  }
 }
 </rubrics>
 
@@ -108,9 +126,18 @@ document.getElementByID("myButton").style.color = "red";
 
 <rubrics>
 {
-  "rubric_1": "Does the response correctly identify the error as an incorrect method name?",
-  "rubric_2": "Does the response correctly identify the correct method name as \`getElementById\`?",
-  "rubric_3": "Does the response *not* provide the corrected code?"
+  "rubric_1": {
+    "question": "Does the response correctly identify the error as an incorrect method name?",
+    "tag": "error_identification"
+  },
+  "rubric_2": {
+    "question": "Does the response correctly identify the correct method name as \`getElementById\`?",
+    "tag": "correction"
+  },
+  "rubric_3": {
+    "question": "Does the response *not* provide the corrected code?",
+    "tag": "instructions"
+  }
 }
 </rubrics>
 
@@ -130,14 +157,38 @@ The primary goals of this research project are:
 
 <rubrics>
 {
-  "rubric_1": "Is the response a 'Project Goals' section?",
-  "rubric_2": "Is the response no more than 200 words?",
-  "rubric_3": "Does the response clearly state 3 distinct project goals?",
-  "rubric_4": "Is the first goal related to quantifying microplastic prevalence and types?",
-  "rubric_5": "Is the second goal related to determining physiological effects of microplastic exposure?",
-  "rubric_6": "Is the third goal related to assessing trophic transfer of microplastics?",
-  "rubric_7": "Does the response *not* include background information?",
-  "rubric_8": "Does the response *not* include methodology?"
+  "rubric_1": {
+    "question": "Is the response a 'Project Goals' section?",
+    "tag": "format"
+  },
+  "rubric_2": {
+    "question": "Is the response no more than 200 words?",
+    "tag": "word_limit"
+  },
+  "rubric_3": {
+    "question": "Does the response clearly state 3 distinct project goals?",
+    "tag": "goal_count"
+  },
+  "rubric_4": {
+    "question": "Is the first goal related to quantifying microplastic prevalence and types?",
+    "tag": "goal_1_content"
+  },
+  "rubric_5": {
+    "question": "Is the second goal related to determining physiological effects of microplastic exposure?",
+    "tag": "goal_2_content"
+  },
+  "rubric_6": {
+    "question": "Is the third goal related to assessing trophic transfer of microplastics?",
+    "tag": "goal_3_content"
+  },
+  "rubric_7": {
+    "question": "Does the response *not* include background information?",
+    "tag": "no_background"
+  },
+  "rubric_8": {
+    "question": "Does the response *not* include methodology?",
+    "tag": "no_methodology"
+  }
 }
 </rubrics>
 
@@ -154,15 +205,42 @@ filtered_df = df[(df['Category'] == 'Electronics') & (df['Price'] > 100)]
 
 <rubrics>
 {
-  "rubric_1": "Does the response include Python code?",
-  "rubric_2": "Does the response use the Pandas library?",
-  "rubric_3": "Does the response create a new DataFrame named \`filtered_df\`?",
-  "rubric_4": "Does the code filter rows where 'Category' is 'Electronics'?",
-  "rubric_5": "Does the code filter rows where 'Price' is greater than 100?",
-  "rubric_6": "Does the code use the AND operator (&) to combine the filtering conditions?",
-  "rubric_7": "Does the code *not* include comments?",
-  "rubric_8": "Does the code *not* include docstrings?",
-  "rubric_9": "Does the code *not* print the DataFrame?"
+  "rubric_1": {
+    "question": "Does the response include Python code?",
+    "tag": "language"
+  },
+  "rubric_2": {
+    "question": "Does the response use the Pandas library?",
+    "tag": "library"
+  },
+  "rubric_3": {
+    "question": "Does the response create a new DataFrame named \`filtered_df\`?",
+    "tag": "variable_name"
+  },
+  "rubric_4": {
+    "question": "Does the code filter rows where 'Category' is 'Electronics'?",
+    "tag": "category_filter"
+  },
+  "rubric_5": {
+    "question": "Does the code filter rows where 'Price' is greater than 100?",
+    "tag": "price_filter"
+  },
+  "rubric_6": {
+    "question": "Does the code use the AND operator (&) to combine the filtering conditions?",
+    "tag": "logical_operator"
+  },
+  "rubric_7": {
+    "question": "Does the code *not* include comments?",
+    "tag": "no_comments"
+  },
+  "rubric_8": {
+    "question": "Does the code *not* include docstrings?",
+    "tag": "no_docstrings"
+  },
+  "rubric_9": {
+    "question": "Does the code *not* print the DataFrame?",
+    "tag": "no_print"
+  }
 }
 </rubrics>
 
@@ -181,30 +259,52 @@ filtered_df = df[(df['Category'] == 'Electronics') & (df['Price'] > 100)]
 
 <rubrics>
 {
-  "rubric_1": "Does the response describe creating a scene, camera, and renderer?",
-  "rubric_2": "Does the response describe creating a cube geometry?",
-  "rubric_3": "Does the response describe creating a material?",
-  "rubric_4": "Does the response describe creating a mesh?",
-  "rubric_5": "Does the response describe adding the mesh to the scene?",
-  "rubric_6": "Does the response describe creating an animation loop that rotates the cube and renders the scene?",
-  "rubric_7": "Does the response *not* include any code?"
+  "rubric_1": {
+    "question": "Does the response describe creating a scene, camera, and renderer?",
+    "tag": "setup"
+  },
+  "rubric_2": {
+    "question": "Does the response describe creating a cube geometry?",
+    "tag": "geometry"
+  },
+  "rubric_3": {
+    "question": "Does the response describe creating a material?",
+    "tag": "material"
+  },
+  "rubric_4": {
+    "question": "Does the response describe creating a mesh?",
+    "tag": "mesh"
+  },
+  "rubric_5": {
+    "question": "Does the response describe adding the mesh to the scene?",
+    "tag": "scene_addition"
+  },
+  "rubric_6": {
+    "question": "Does the response describe creating an animation loop that rotates the cube and renders the scene?",
+    "tag": "animation"
+  },
+  "rubric_7": {
+    "question": "Does the response *not* include any code?",
+    "tag": "no_code"
+  }
 }
 </rubrics>
 
 ## Output format
 
-The rubrics must be output as a json within <rubrics></rubrics> tags. Each rubrics will be one entry in the json.
+The rubrics must be output as a json within <rubrics></rubrics> tags. Each rubric will be one entry in the json.
 
-Each entry will contain a rubric number and the rubric as shown in the examples above.
+Each entry will contain a rubric number (as the key) and an object with "question" and "tag" properties as shown in the examples above.
 
 **IMPORTANT** Do Not answer the questions, only generate rubrics.
 
-Now generate rubrics for the conversation below:
+Now generate rubrics(at least 15) for the conversation below:
 
 **question:** ${task.Prompt}
 
 **answer:** ${task.GeminiResponse}`;
 }
+
 /**
  * Generate the rubric checker system prompt for evaluating responses
  */
@@ -220,10 +320,14 @@ export function generateRubricCheckerPrompt(
     return "Please create at least one valid rubric item before generating the checker prompt.";
   }
 
+  // Create rubric JSON in the new format for the prompt
   const rubricJson = validRubrics.reduce((acc, item, index) => {
-    acc[`rubric_${index + 1}`] = item.question;
+    acc[`rubric_${index + 1}`] = {
+      question: item.question,
+      tag: item.tag,
+    };
     return acc;
-  }, {} as Record<string, string>);
+  }, {} as Record<string, { question: string; tag: string }>);
 
   return `You will evaluate a model response against specific rubric criteria. For each criterion, answer "Yes" if the response meets the requirement or "No" if it doesn't.
 
@@ -370,6 +474,10 @@ export function validateRubricRequirements(rubricItems: RubricItem[]): {
         `Rubric item ${index + 1}: Tag must be 20 characters or less.`
       );
     }
+
+    if (item.tag.trim() && item.tag.length < 1) {
+      errors.push(`Rubric item ${index + 1}: Tag cannot be empty.`);
+    }
   });
 
   return {
@@ -388,12 +496,9 @@ export function validateRubricRequirements(rubricItems: RubricItem[]): {
 }
 
 /**
- * Format rubric data for submission to backend
+ * Format rubric data for submission to backend (updated for new format)
  */
-export function formatRubricForSubmission(
-  rubricItems: RubricItem[]
-  // comments?: string
-): {
+export function formatRubricForSubmission(rubricItems: RubricItem[]): {
   rubricJson: string;
   humanScoresJson: string;
   aiScoresJson: string;
@@ -403,25 +508,28 @@ export function formatRubricForSubmission(
     (item) => item.question.trim() && item.tag.trim()
   );
 
-  // Simple rubric JSON for the Rubric field
+  // NEW: Rubric JSON in new format
   const rubricJson = validRubrics.reduce((acc, item, index) => {
-    acc[`rubric_${index + 1}`] = item.question;
+    acc[`rubric_${index + 1}`] = {
+      question: item.question,
+      tag: item.tag,
+    };
     return acc;
-  }, {} as Record<string, string>);
+  }, {} as Record<string, { question: string; tag: string }>);
 
-  // Human scores JSON
+  // Human scores JSON (unchanged)
   const humanScores = validRubrics.reduce((acc, item, index) => {
     acc[`rubric_${index + 1}`] = item.humanScore === true ? "Yes" : "No";
     return acc;
   }, {} as Record<string, string>);
 
-  // AI scores JSON
+  // AI scores JSON (unchanged)
   const aiScores = validRubrics.reduce((acc, item, index) => {
     acc[`rubric_${index + 1}`] = item.aiScore === true ? "Yes" : "No";
     return acc;
   }, {} as Record<string, string>);
 
-  // Complete rubric items with metadata
+  // Complete rubric items with metadata (updated)
   const rubricItemsWithMetadata = validRubrics.map((item, index) => ({
     rubricNumber: index + 1,
     question: item.question,
@@ -436,4 +544,72 @@ export function formatRubricForSubmission(
     aiScoresJson: JSON.stringify(aiScores),
     rubricItemsJson: JSON.stringify(rubricItemsWithMetadata),
   };
+}
+
+/**
+ * Convert rubric items array to new JSON format
+ */
+export function rubricItemsToNewFormat(
+  items: Array<{ question: string; tag: string }>
+): string {
+  const rubric = items.reduce((acc, item, index) => {
+    acc[`rubric_${index + 1}`] = {
+      question: item.question,
+      tag: item.tag,
+    };
+    return acc;
+  }, {} as Record<string, { question: string; tag: string }>);
+
+  return JSON.stringify(rubric, null, 2);
+}
+
+/**
+ * Convert new format JSON to rubric items array
+ */
+export function newFormatToRubricItems(
+  rubricJson: string
+): Array<{ question: string; tag: string }> {
+  try {
+    const rubric = JSON.parse(rubricJson);
+
+    return (
+      Object.entries(rubric)
+        .filter(([key]) => key.startsWith("rubric_"))
+        .sort(([a], [b]) => {
+          const numA = parseInt(a.replace("rubric_", ""));
+          const numB = parseInt(b.replace("rubric_", ""));
+          return numA - numB;
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map(([, value]: [string, any]) => ({
+          question: value.question || "",
+          tag: value.tag || "",
+        }))
+    );
+  } catch (error) {
+    console.error("Error converting new format to rubric items:", error);
+    return [];
+  }
+}
+
+/**
+ * Generate example rubric in new format for documentation
+ */
+export function generateExampleRubric(): string {
+  const exampleRubric = {
+    rubric_1: {
+      question: "Does the response clearly explain the main concept?",
+      tag: "clarity",
+    },
+    rubric_2: {
+      question: "Does the response provide specific examples?",
+      tag: "examples",
+    },
+    rubric_3: {
+      question: "Does the response address all parts of the question?",
+      tag: "completeness",
+    },
+  };
+
+  return JSON.stringify(exampleRubric, null, 2);
 }

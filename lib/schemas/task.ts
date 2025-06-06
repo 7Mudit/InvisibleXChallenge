@@ -12,7 +12,7 @@ export const ProfessionalSector = z.enum([
 
 export type ProfessionalSector = z.infer<typeof ProfessionalSector>;
 
-// TaskStatus enum with  step-by-step flow
+// TaskStatus enum with step-by-step flow
 export const TaskStatus = z.enum([
   "Task_Creation",
   "Rubric_V1",
@@ -26,6 +26,15 @@ export const TaskStatus = z.enum([
 ]);
 
 export type TaskStatus = z.infer<typeof TaskStatus>;
+
+// Rubric item interface with question and tag
+export interface RubricItem {
+  question: string;
+  tag: string;
+}
+
+//  Type for the new rubric format
+export type RubricFormat = Record<string, RubricItem>;
 
 // Original task creation schema
 export const CreateTaskSchema = z.object({
@@ -105,9 +114,9 @@ export interface AirtableTaskRecord extends FieldSet {
 
   Current_Rubric_Version: number;
 
-  // New rubric fields
-  Rubric_V1?: string; // JSON string - Initial rubric from Gemini
-  Rubric_V2?: string; // JSON string - Enhanced rubric
+  // Updated rubric fields to support the new format
+  Rubric_V1?: string; // JSON string with new format
+  Rubric_V2?: string; // JSON string with new format
   [key: `Rubric_V${number}`]: string | undefined;
 
   // Gemini evaluation fields
@@ -148,6 +157,43 @@ export function getCurrentRubricContent(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (task as any)[fieldName];
 }
+
+// Parse rubric content from JSON string to RubricFormat
+export function parseRubricContent(jsonString: string): RubricFormat | null {
+  try {
+    const parsed = JSON.parse(jsonString);
+
+    // Validate that it's the new format
+    const isValidFormat = Object.values(parsed).every(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (item: any) =>
+        typeof item === "object" &&
+        typeof item.question === "string" &&
+        typeof item.tag === "string"
+    );
+
+    if (!isValidFormat) {
+      throw new Error(
+        "Invalid rubric format - must have question and tag properties"
+      );
+    }
+
+    return parsed as RubricFormat;
+  } catch (error) {
+    console.error("Error parsing rubric content:", error);
+    return null;
+  }
+}
+
+// Get current rubric in the new format
+export function getCurrentRubric(
+  task: AirtableTaskRecord
+): RubricFormat | null {
+  const content = getCurrentRubricContent(task);
+  if (!content) return null;
+  return parseRubricContent(content);
+}
+
 export const TaskSummarySchema = z.object({
   id: z.string(),
   TaskID: z.string(),
@@ -221,10 +267,22 @@ export const RubricJSONSchema = z.string().refine(
         return false;
       }
 
-      // Validate each rubric item
+      // Validate each rubric item has the correct new format structure
       return rubricKeys.every((key) => {
         const value = rubric[key];
-        return typeof value === "string" && value.trim().length >= 10;
+
+        if (typeof value !== "object" || value === null) {
+          return false;
+        }
+
+        // Must have question and tag properties
+        return (
+          typeof value.question === "string" &&
+          value.question.trim().length >= 10 &&
+          typeof value.tag === "string" &&
+          value.tag.trim().length >= 1 &&
+          value.tag.length <= 20
+        );
       });
     } catch {
       return false;
@@ -232,7 +290,7 @@ export const RubricJSONSchema = z.string().refine(
   },
   {
     message:
-      "Must be valid JSON with 15-50 unique rubric items (rubric_1, rubric_2, etc.) each with at least 10 characters. No duplicate keys allowed.",
+      "Must be valid JSON with 15-50 unique rubric items (rubric_1, rubric_2, etc.). Each item must have 'question' (10+ chars) and 'tag' (1-20 chars) properties. No duplicate keys allowed.",
   }
 );
 
@@ -387,7 +445,6 @@ export function getDetailedValidationError(errors: z.ZodError): {
   };
 }
 
-// Updated status display info for new statuses
 export function getStatusDisplayInfo(status: TaskStatus) {
   switch (status) {
     case "Task_Creation":
@@ -679,6 +736,7 @@ export interface AlignmentResult {
   }>;
 }
 
+// Updated alignment calculation for new format
 export function calculateAlignment(
   humanScoresJSON: string,
   modelScoresJSON: string,
@@ -687,7 +745,11 @@ export function calculateAlignment(
   try {
     const humanScores = JSON.parse(humanScoresJSON);
     const modelScores = JSON.parse(modelScoresJSON);
-    const rubric = JSON.parse(rubricJSON);
+    const rubric = parseRubricContent(rubricJSON);
+
+    if (!rubric) {
+      throw new Error("Invalid rubric format");
+    }
 
     const keys = Object.keys(humanScores);
     let aligned = 0;
@@ -699,7 +761,8 @@ export function calculateAlignment(
       } else {
         misalignedItems.push({
           id: key,
-          question: rubric[key] || `Question ${key.replace("rubric_", "")}`,
+          question:
+            rubric[key]?.question || `Question ${key.replace("rubric_", "")}`,
           human_score: humanScores[key],
           model_score: modelScores[key],
         });
@@ -725,9 +788,7 @@ export function calculateAlignment(
   }
 }
 
-// Validation helpers
-// Add this to lib/schemas/task.ts - replace the existing validateRubricJSON function
-
+// Updated validation function for new format
 export function validateRubricJSON(jsonString: string): {
   isValid: boolean;
   errors: string[];
@@ -743,7 +804,7 @@ export function validateRubricJSON(jsonString: string): {
   }
 
   try {
-    // Clean the JSON string - remove any trailing/leading whitespace and ensure it's properly formatted
+    // Clean the JSON string
     const cleanedJsonString = jsonString.trim();
 
     // Check for duplicate keys BEFORE parsing
@@ -790,13 +851,42 @@ export function validateRubricJSON(jsonString: string): {
       );
     }
 
-    // Validate each rubric item
+    // Validate each rubric item for new format only
     rubricKeys.forEach((key) => {
       const value = rubric[key];
-      if (typeof value !== "string") {
-        errors.push(`${key}: Must be a string`);
-      } else if (value.trim().length < 10) {
-        errors.push(`${key}: Must be at least 10 characters long`);
+
+      if (typeof value !== "object" || value === null) {
+        errors.push(
+          `${key}: Must be an object with 'question' and 'tag' properties`
+        );
+        return;
+      }
+
+      // Validate question property
+      if (typeof value.question !== "string") {
+        errors.push(`${key}: Must have a 'question' property as string`);
+      } else if (value.question.trim().length < 10) {
+        errors.push(`${key}: Question must be at least 10 characters long`);
+      }
+
+      // Validate tag property
+      if (typeof value.tag !== "string") {
+        errors.push(`${key}: Must have a 'tag' property as string`);
+      } else if (value.tag.trim().length < 1) {
+        errors.push(`${key}: Tag cannot be empty`);
+      } else if (value.tag.length > 20) {
+        errors.push(`${key}: Tag must be 20 characters or less`);
+      }
+
+      // Check for extra properties
+      const allowedProps = ["question", "tag"];
+      const extraProps = Object.keys(value).filter(
+        (prop) => !allowedProps.includes(prop)
+      );
+      if (extraProps.length > 0) {
+        errors.push(
+          `${key}: Contains unexpected properties: ${extraProps.join(", ")}`
+        );
       }
     });
 
@@ -829,7 +919,7 @@ export function validateRubricJSON(jsonString: string): {
       );
 
       if (!isSequential) {
-        console.warn("Rubric numbering is not sequential:", rubricNumbers);
+        errors.push("Rubric numbering must be sequential starting from 1");
       }
     }
 
@@ -896,8 +986,13 @@ export function validateEvaluationScores(
 ): { isValid: boolean; errors: string[] } {
   try {
     const scores = JSON.parse(scoresJSON);
-    const rubric = JSON.parse(rubricJSON);
+    const rubric = parseRubricContent(rubricJSON);
     const errors: string[] = [];
+
+    if (!rubric) {
+      errors.push("Invalid rubric format");
+      return { isValid: false, errors };
+    }
 
     const rubricKeys = Object.keys(rubric).filter(
       (key) => key.startsWith("rubric_") && /^rubric_\d+$/.test(key)
@@ -921,8 +1016,51 @@ export function validateEvaluationScores(
 
     return { isValid: errors.length === 0, errors };
   } catch (error) {
-    console.error("Error validating evaluation scores JSON :", error);
-
+    console.error("Error validating evaluation scores JSON:", error);
     return { isValid: false, errors: ["Invalid JSON format"] };
+  }
+}
+
+// Helper functions for new format only
+export function createNewRubricFormat(
+  items: Array<{ question: string; tag: string }>
+): string {
+  const rubric: RubricFormat = {};
+
+  items.forEach((item, index) => {
+    const key = `rubric_${index + 1}`;
+    rubric[key] = {
+      question: item.question,
+      tag: item.tag,
+    };
+  });
+
+  return JSON.stringify(rubric, null, 2);
+}
+
+export function parseNewRubricFormat(
+  rubricJSON: string
+): Array<{ question: string; tag: string }> {
+  try {
+    const rubric = parseRubricContent(rubricJSON);
+
+    if (!rubric) {
+      return [];
+    }
+
+    return Object.entries(rubric)
+      .filter(([key]) => key.startsWith("rubric_"))
+      .sort(([a], [b]) => {
+        const numA = parseInt(a.replace("rubric_", ""));
+        const numB = parseInt(b.replace("rubric_", ""));
+        return numA - numB;
+      })
+      .map(([, rubricItem]) => ({
+        question: rubricItem.question,
+        tag: rubricItem.tag,
+      }));
+  } catch (error) {
+    console.error("Error parsing new rubric format:", error);
+    return [];
   }
 }
