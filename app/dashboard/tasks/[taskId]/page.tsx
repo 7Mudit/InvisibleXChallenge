@@ -35,6 +35,7 @@ import {
   Zap,
   History,
   RefreshCw,
+  CheckCheckIcon,
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
@@ -400,9 +401,9 @@ export default function TaskDetailsPage() {
     switch (step.state) {
       case "completed":
         return (
-          <Button variant="outline" {...buttonProps}>
-            <Edit className="h-4 w-4 mr-2" />
-            Edit
+          <Button variant="outline">
+            <CheckCheckIcon className="h-4 w-4 mr-2" />
+            Completed
           </Button>
         );
       case "current":

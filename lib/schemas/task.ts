@@ -38,6 +38,7 @@ export type RubricFormat = Record<string, RubricItem>;
 
 // Original task creation schema
 export const CreateTaskSchema = z.object({
+  TaskID: z.string().min(1, "Task ID is required"),
   Prompt: z
     .string()
     .min(50, "Task description must be at least 50 characters")
@@ -398,10 +399,11 @@ export function addServerFields(
 
 export function toAirtableFormat(
   serverData: ServerTaskInput,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   taskID: string
 ): Omit<AirtableTaskRecord, keyof FieldSet> {
   return {
-    TaskID: taskID,
+    TaskID: serverData.TaskID,
     Prompt: serverData.Prompt,
     ProfessionalSector: serverData.ProfessionalSector,
     TrainerEmail: serverData.TrainerEmail,
