@@ -23,7 +23,6 @@ import {
   addAlignmentToHistory,
   parseRubricContent,
 } from "@/lib/schemas/task";
-import { generateTaskId } from "@/lib/utils/task-utils";
 import { clerkClient } from "@clerk/nextjs/server";
 import z from "zod";
 
@@ -139,11 +138,12 @@ const fieldManager = new AirtableFieldManager(
 
 export const tasksRouter = router({
   // Original create task mutation (updated to use new status)
+
   create: protectedProcedure
     .input(CreateTaskSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        console.log("Starting task creation");
+        console.log("Starting task creation with client TaskID:", input.TaskID);
 
         const client = await clerkClient();
         const user = await client.users.getUser(ctx.userId);
@@ -172,6 +172,7 @@ export const tasksRouter = router({
           userEmail
         );
 
+        // Check for existing incomplete tasks
         const existingTasks = await ctx.airtable.tasksTable
           .select({
             filterByFormula: `AND({TrainerEmail} = '${userEmail}', {Status} != 'Completed')`,
@@ -179,7 +180,6 @@ export const tasksRouter = router({
           })
           .all();
 
-        // If user has any incomplete tasks, prevent new task creation
         if (existingTasks.length > 0) {
           const incompleteTask = existingTasks[0];
           const taskStatus = getStatusDisplayInfo(incompleteTask.fields.Status);
@@ -190,12 +190,27 @@ export const tasksRouter = router({
           });
         }
 
+        // Check if TaskID already exists
+        const existingTaskWithId = await ctx.airtable.tasksTable
+          .select({
+            filterByFormula: `{TaskID} = '${input.TaskID}'`,
+            maxRecords: 1,
+          })
+          .all();
+
+        if (existingTaskWithId.length > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Task ID ${input.TaskID} already exists. Please refresh the page to generate a new ID.`,
+          });
+        }
+
         console.log("No incomplete tasks found, proceeding with task creation");
         const serverData = addServerFields(input, userEmail);
 
         try {
           const validatedServerData = ServerTaskSchema.parse(serverData);
-          const taskID = generateTaskId();
+          const taskID = input.TaskID; // Use client-provided TaskID
           const airtableData = toAirtableFormat(validatedServerData, taskID);
 
           await fieldManager.ensureRubricFieldsExist(2);
@@ -236,15 +251,12 @@ export const tasksRouter = router({
         } catch (validationError) {
           if (validationError instanceof z.ZodError) {
             console.error("Validation failed:", validationError.errors);
-
             const errorDetails = getDetailedValidationError(validationError);
-
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: `Validation Error: ${errorDetails.summary}`,
             });
           }
-
           throw validationError;
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -264,10 +276,6 @@ export const tasksRouter = router({
             message:
               "One or more field values are invalid. Please check your selections and try again.",
           });
-        }
-
-        if (error instanceof TRPCError) {
-          throw error;
         }
 
         throw new TRPCError({
