@@ -1,7 +1,7 @@
+import { v4 as uuidv4 } from "uuid";
+
 export function generateTaskId(): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `TASK-${timestamp}-${random}`.toUpperCase();
+  return uuidv4();
 }
 
 export function truncateText(text: string, length: number = 50): string {
