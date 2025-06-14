@@ -332,7 +332,8 @@ export const tasksRouter = router({
           {
             id: existingRecord.id,
             fields: {
-              Rubric_V1: input.rubricV1, // Now contains new format JSON
+              Rubric_V1: input.rubricV1,
+              Final_Rubric: input.rubricV1,
               Status: "Rubric_V1" as TaskStatus,
             },
           },
@@ -472,8 +473,9 @@ export const tasksRouter = router({
         // Update the record with the new version
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updateFields: any = {
-          [rubricFieldName]: input.rubricContent, // New format JSON
+          [rubricFieldName]: input.rubricContent,
           Current_Rubric_Version: input.targetVersion,
+          Final_Rubric: input.rubricContent,
           Status: nextStatus,
         };
 

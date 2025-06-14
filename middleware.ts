@@ -30,7 +30,7 @@ export async function middleware(request: NextRequest) {
       const userRole = userInfo?.role;
 
       if (!userRole || userRole !== "admin") {
-        console.warn("Unuathorized admin access attempt", {
+        console.warn("Unauthorized admin access attempt", {
           url: request.nextUrl.pathname,
           userId: session.user.sub,
           role: userRole,

@@ -133,6 +133,7 @@ export interface AirtableTaskRecord extends FieldSet {
   Misaligned_GPT?: string; // JSON array - Misaligned items for GPT
 
   Alignment_History?: string;
+  Final_Rubric?: string;
 
   // Optional comments
   Comments?: string; // General comments about the evaluation
