@@ -38,7 +38,7 @@ export type RubricFormat = Record<string, RubricItem>;
 
 // Original task creation schema
 export const CreateTaskSchema = z.object({
-  TaskID: z.string().min(1, "Task ID is required"),
+  TaskID: z.string().uuid("Task ID must be a valid UUID"),
   Prompt: z
     .string()
     .min(50, "Task description must be at least 50 characters")
