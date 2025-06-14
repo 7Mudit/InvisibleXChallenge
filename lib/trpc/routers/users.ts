@@ -101,7 +101,7 @@ export const usersRouter = router({
       if (currentUserInfo.role !== "admin") {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Admin privilegs required",
+          message: "Admin privileges required",
         });
       }
 
