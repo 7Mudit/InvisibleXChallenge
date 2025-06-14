@@ -444,7 +444,7 @@ export default function TaskDetailsPage() {
           <div className="space-y-1">
             <div className="flex items-center space-x-3">
               <h1 className="text-3xl font-bold tracking-tight text-foreground">
-                {task.TaskID}
+                {task.TaskID.split("-")[0]}...
               </h1>
               <Badge className={statusInfo.color} variant="outline">
                 {statusInfo.label}

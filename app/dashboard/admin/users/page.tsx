@@ -47,7 +47,6 @@ import {
   MoreVertical,
   Crown,
   Shield,
-  User,
   Trash2,
   Search,
   Filter,
@@ -57,10 +56,11 @@ import {
   ChevronDown,
   Calendar,
   Mail,
+  UserIcon,
 } from "lucide-react";
 
 import { api } from "@/lib/trpc/client";
-import { UserRole } from "@/lib/schemas/users.schema";
+import { User, UserRole } from "@/lib/schemas/users.schema";
 import { cn } from "@/lib/utils";
 
 const getRoleBadge = (role: UserRole) => {
@@ -83,7 +83,7 @@ const getRoleBadge = (role: UserRole) => {
     default:
       return {
         label: "Operator",
-        icon: User,
+        icon: UserIcon,
         className:
           "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400 border-gray-200",
       };
@@ -173,7 +173,11 @@ export default function AdminUsersPage() {
   const filteredAndSortedUsers = useMemo(() => {
     if (!usersData?.users) return [];
 
-    const filtered = usersData.users.filter((user) => {
+    const filtered = usersData.users.filter((user: User) => {
+      const hasValidRole = user.role && user.role.trim() !== "";
+      if (!hasValidRole) {
+        return false;
+      }
       const matchesSearch =
         user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -186,7 +190,8 @@ export default function AdminUsersPage() {
     });
 
     // Sort users
-    filtered.sort((a, b) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    filtered.sort((a: any, b: any) => {
       let aValue, bValue;
 
       switch (sortBy) {
@@ -300,7 +305,9 @@ export default function AdminUsersPage() {
           </Card>
 
           {["admin", "leads", "operator"].map((role) => {
-            const count = usersData.users.filter((u) => u.role === role).length;
+            const count = usersData.users.filter(
+              (u: { role: string }) => u.role === role
+            ).length;
             const badge = getRoleBadge(role as UserRole);
             const IconComponent = badge.icon;
 
@@ -466,7 +473,7 @@ export default function AdminUsersPage() {
               </div>
 
               {/* Table Rows */}
-              {filteredAndSortedUsers.map((user) => {
+              {filteredAndSortedUsers.map((user: User) => {
                 const roleBadge = getRoleBadge(user.role);
                 const IconComponent = roleBadge.icon;
                 const isCurrentUser = user.id === usersData?.currentUserId;

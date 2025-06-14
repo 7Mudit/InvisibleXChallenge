@@ -54,7 +54,7 @@ export const adminQuickActions = [
     title: "Manage Users",
     description: "View and manage user accounts",
     icon: Users,
-    href: "/admin/users",
+    href: "/dashboard/admin/users",
     variant: "outline" as const,
     color: "from-purple-500/10 to-purple-500/5",
     borderColor: "border-purple-500/20",

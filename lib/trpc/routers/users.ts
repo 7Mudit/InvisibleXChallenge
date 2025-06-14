@@ -1,75 +1,165 @@
+import { getUserInfoFromAPI } from "@/lib/utils/auth-utils";
 import { router, protectedProcedure } from "../server";
 import { TRPCError } from "@trpc/server";
-import { clerkClient } from "@clerk/nextjs/server";
+import { UserRoleSchema } from "@/lib/schemas/users.schema";
 import { z } from "zod";
-import {
-  UserRole,
-  UserRoleSchema,
-  canAccessAdminRoutes,
-} from "@/lib/schemas/users.schema";
 
 export const usersRouter = router({
-  // Get all users (admin only)
-  getAllUsers: protectedProcedure.query(async ({ ctx }) => {
+  getCurrentUser: protectedProcedure.query(async ({ ctx }) => {
     try {
-      const client = await clerkClient();
-      const currentUser = await client.users.getUser(ctx.userId);
-      const currentUserEmail = currentUser.emailAddresses.find(
-        (email) => email.id === currentUser.primaryEmailAddressId
-      )?.emailAddress;
+      const session = ctx.session;
 
-      const currentUserRole = currentUser.publicMetadata?.role as UserRole;
-
-      // Check if current user has admin access
-      if (!canAccessAdminRoutes(currentUserRole)) {
+      if (!session?.user) {
         throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You don't have permission to access user management.",
+          code: "UNAUTHORIZED",
+          message: "No session found",
         });
       }
 
-      console.log("Fetching all users for admin:", currentUserEmail);
-
-      const users = await client.users.getUserList({
-        limit: 500,
-      });
-
-      const formattedUsers = users.data.map((user) => ({
-        id: user.id,
-        email:
-          user.emailAddresses.find(
-            (email) => email.id === user.primaryEmailAddressId
-          )?.emailAddress || "No email",
-        firstName: user.firstName || "",
-        lastName: user.lastName || "",
-        role: (user.publicMetadata?.role as UserRole) || "operator",
-        createdAt: user.createdAt,
-        lastSignInAt: user.lastSignInAt,
-        imageUrl: user.imageUrl,
-        username:
-          user.username ||
-          user.emailAddresses[0]?.emailAddress?.split("@")[0] ||
-          "",
-      }));
+      const userInfoResponse = await getUserInfoFromAPI(session);
 
       return {
-        users: formattedUsers,
-        total: users.totalCount,
-        currentUserId: ctx.userId,
+        user: session.user,
+        role: userInfoResponse.role,
+        userInfo: userInfoResponse.userInfo,
+        sessionData: session,
       };
     } catch (error) {
-      console.error("Failed to fetch users:", error);
+      console.error("Error getting current user:", error);
+
       if (error instanceof TRPCError) {
         throw error;
       }
+
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: "Failed to fetch users.",
+        message: "Failed to fetch user info",
+        cause: error,
       });
     }
   }),
 
-  // Update user role (admin only)
+  // Get user role from Management API (where app_metadata exists)
+  getCurrentUserRole: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const session = ctx.session;
+
+      if (!session?.user) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "No session found",
+        });
+      }
+
+      console.log("Getting user role for:", session.user.sub);
+
+      const userInfoResponse = await getUserInfoFromAPI(session);
+
+      if (!userInfoResponse?.userInfo) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to fetch user information from Auth0",
+        });
+      }
+
+      const result = {
+        userId: userInfoResponse.userInfo.user_id,
+        email: userInfoResponse.userInfo.email,
+        role: userInfoResponse.role,
+        isAdmin: userInfoResponse.role === "admin",
+      };
+
+      console.log("User role result:", result);
+      return result;
+    } catch (error) {
+      console.error("Error getting user role:", error);
+
+      if (error instanceof TRPCError) {
+        throw error;
+      }
+
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Failed to fetch user role",
+        cause: error,
+      });
+    }
+  }),
+
+  getAllUsers: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const session = ctx.session;
+
+      if (!session?.user) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "No session found",
+        });
+      }
+
+      const currentUserInfo = await getUserInfoFromAPI(session);
+      if (currentUserInfo.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Admin privileges required",
+        });
+      }
+
+      const accessToken = currentUserInfo.tokenData.access_token;
+
+      const usersResponse = await fetch(
+        `https://${process.env.AUTH0_DOMAIN}/api/v2/users?include_totals=true&search_engine=v3&q=email:*@invisible.email`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!usersResponse.ok) {
+        const errorText = await usersResponse.text();
+        console.error("Users fetch failed:", usersResponse.status, errorText);
+        throw new Error(`Failed to fetch users: ${usersResponse.status}`);
+      }
+
+      const usersData = await usersResponse.json();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transformedUsers = usersData.users.map((user: any) => ({
+        id: user.user_id,
+        email: user.email,
+        firstName: user.given_name || user.name?.split(" ")[0] || "",
+        lastName:
+          user.family_name || user.name?.split(" ").slice(1).join(" ") || "",
+        username: user.username || user.email?.split("@")[0] || "",
+        imageUrl: user.picture || "",
+        role: user.app_metadata?.role?.sector_evals || user.app_metadata?.role,
+
+        createdAt: user.created_at,
+        lastSignInAt: user.last_login,
+        emailVerified: user.email_verified,
+      }));
+
+      return {
+        users: transformedUsers,
+        total: transformedUsers.length,
+        currentUserId: session.user.sub,
+      };
+    } catch (error) {
+      console.error("Error getting all users:", error);
+      if (error instanceof TRPCError) {
+        throw error;
+      }
+
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Failed to fetch users",
+        cause: error,
+      });
+    }
+  }),
   updateUserRole: protectedProcedure
     .input(
       z.object({
@@ -79,74 +169,89 @@ export const usersRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const currentUser = await client.users.getUser(ctx.userId);
-        const currentUserRole = currentUser.publicMetadata?.role as UserRole;
+        const session = ctx.session;
 
-        // Check if current user has admin access
-        if (!canAccessAdminRoutes(currentUserRole)) {
+        if (!session?.user) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "No session found",
+          });
+        }
+
+        // Check if current user is admin
+        const currentUserInfo = await getUserInfoFromAPI(session);
+        if (currentUserInfo.role !== "admin") {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "You don't have permission to update user roles.",
+            message: "Admin privileges required",
           });
         }
 
-        // Prevent users from updating their own role
-        if (input.userId === ctx.userId) {
+        // Prevent self-demotion
+        if (session.user.sub === input.userId && input.newRole !== "admin") {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "You cannot update your own role.",
+            message: "You cannot change your own admin role",
           });
         }
 
-        // Get the target user
-        const targetUser = await client.users.getUser(input.userId);
-        const targetUserEmail = targetUser.emailAddresses.find(
-          (email) => email.id === targetUser.primaryEmailAddressId
-        )?.emailAddress;
+        const accessToken = currentUserInfo.tokenData.access_token;
 
-        if (!targetUserEmail?.endsWith("@invisible.email")) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Can only manage users with @invisible.email domain.",
-          });
-        }
-
-        // Update the user's role in metadata
-        await client.users.updateUserMetadata(input.userId, {
-          publicMetadata: {
-            ...targetUser.publicMetadata,
-            role: input.newRole,
-          },
-        });
-
-        console.log(
-          `Role updated: ${targetUserEmail} from ${targetUser.publicMetadata?.role} to ${input.newRole}`
+        // Update user metadata in Auth0
+        const updateResponse = await fetch(
+          `https://${
+            process.env.AUTH0_DOMAIN
+          }/api/v2/users/${encodeURIComponent(input.userId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              app_metadata: {
+                role: input.newRole,
+              },
+            }),
+          }
         );
+
+        if (!updateResponse.ok) {
+          const errorText = await updateResponse.text();
+          console.error(
+            "Role update failed:",
+            updateResponse.status,
+            errorText
+          );
+          throw new Error(
+            `Failed to update user role: ${updateResponse.status}`
+          );
+        }
+
+        const updatedUser = await updateResponse.json();
+
+        console.log(`Role updated for user ${input.userId}: ${input.newRole}`);
 
         return {
           success: true,
-          message: `Successfully updated ${targetUserEmail} to ${input.newRole}`,
-          user: {
-            id: targetUser.id,
-            email: targetUserEmail,
-            oldRole: targetUser.publicMetadata?.role as UserRole,
-            newRole: input.newRole,
-          },
+          message: `User role updated to ${input.newRole}`,
+          user: updatedUser,
         };
       } catch (error) {
-        console.error("Failed to update user role:", error);
+        console.error("Error updating user role:", error);
+
         if (error instanceof TRPCError) {
           throw error;
         }
+
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to update user role.",
+          message: "Failed to update user role",
+          cause: error,
         });
       }
     }),
 
-  // Delete user (admin only)
   deleteUser: protectedProcedure
     .input(
       z.object({
@@ -155,61 +260,81 @@ export const usersRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const currentUser = await client.users.getUser(ctx.userId);
-        const currentUserRole = currentUser.publicMetadata?.role as UserRole;
+        const session = ctx.session;
 
-        // Check if current user has admin access
-        if (!canAccessAdminRoutes(currentUserRole)) {
+        if (!session?.user) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "No session found",
+          });
+        }
+
+        const currentUserInfo = await getUserInfoFromAPI(session);
+        if (currentUserInfo.role !== "admin") {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "You don't have permission to delete users.",
+            message: "Admin privileges required",
           });
         }
 
-        // Prevent users from deleting themselves
-        if (input.userId === ctx.userId) {
+        if (session.user.sub === input.userId) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "You cannot delete your own account.",
+            message: "You cannot delete your own account",
           });
         }
 
-        // Get the target user before deletion
-        const targetUser = await client.users.getUser(input.userId);
-        const targetUserEmail = targetUser.emailAddresses.find(
-          (email) => email.id === targetUser.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!targetUserEmail?.endsWith("@invisible.email")) {
+        if (!currentUserInfo.userInfo) {
           throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Can only delete users with @invisible.email domain.",
+            code: "NOT_FOUND",
+            message: "User not found",
           });
         }
 
-        // Delete the user
-        await client.users.deleteUser(input.userId);
+        const accessToken = currentUserInfo.tokenData.access_token;
 
-        console.log(`User deleted: ${targetUserEmail} by admin`);
+        const deleteResponse = await fetch(
+          `https://${
+            process.env.AUTH0_DOMAIN
+          }/api/v2/users/${encodeURIComponent(input.userId)}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (!deleteResponse.ok) {
+          const errorText = await deleteResponse.text();
+          console.error(
+            "User deletion failed:",
+            deleteResponse.status,
+            errorText
+          );
+          throw new Error(`Failed to delete user: ${deleteResponse.status}`);
+        }
+
+        console.log(
+          `User deleted: ${currentUserInfo.userInfo.email} (${input.userId})`
+        );
 
         return {
           success: true,
-          message: `Successfully deleted user ${targetUserEmail}`,
-          deletedUser: {
-            id: targetUser.id,
-            email: targetUserEmail,
-            role: targetUser.publicMetadata?.role as UserRole,
-          },
+          message: `User ${currentUserInfo.userInfo.email} has been deleted`,
         };
       } catch (error) {
-        console.error("Failed to delete user:", error);
+        console.error("Error deleting user:", error);
+
         if (error instanceof TRPCError) {
           throw error;
         }
+
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to delete user.",
+          message: "Failed to delete user",
+          cause: error,
         });
       }
     }),
