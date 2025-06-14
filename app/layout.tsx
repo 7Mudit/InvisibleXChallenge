@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "next-themes";
-import { ClerkProvider } from "@clerk/nextjs";
+
 import { TRPCProvider } from "@/lib/trpc/provider";
 import { Toaster } from "sonner";
+import Script from "next/script";
 
 const ibmPlexSans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -31,41 +32,38 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      afterSignOutUrl="/sign-in"
-      appearance={{
-        elements: {
-          formButtonPrimary:
-            "bg-primary hover:bg-primary/90 text-primary-foreground",
-          footerActionLink: "text-primary hover:text-primary/80",
-        },
-      }}
-    >
-      <html lang="en" suppressHydrationWarning>
-        <body
-          className={`${ibmPlexMono.variable} ${ibmPlexSans.variable} ${ibmPlexSans.className}  antialiased`}
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${ibmPlexMono.variable} ${ibmPlexSans.variable} ${ibmPlexSans.className}  antialiased`}
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
         >
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <TRPCProvider>
-              {children}{" "}
-              <Toaster
-                position="bottom-right"
-                expand={false}
-                toastOptions={{
-                  style: {
-                    border: "1px solid hsl(var(--border))",
-                  },
-                }}
-              />
-            </TRPCProvider>
-          </ThemeProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+          <TRPCProvider>
+            {children}{" "}
+            <Toaster
+              position="bottom-right"
+              expand={false}
+              toastOptions={{
+                style: {
+                  border: "1px solid hsl(var(--border))",
+                },
+              }}
+            />
+          </TRPCProvider>
+        </ThemeProvider>
+      </body>
+      {process.env.NODE_ENV === "development" ? (
+        <head>
+          <Script
+            crossOrigin="anonymous"
+            src="//unpkg.com/react-scan/dist/auto.global.js"
+          />
+        </head>
+      ) : null}
+    </html>
   );
 }

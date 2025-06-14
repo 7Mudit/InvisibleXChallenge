@@ -1,8 +1,5 @@
-import {
-  EnvelopeOpenIcon,
-  ExclamationTriangleIcon,
-} from "@radix-ui/react-icons";
-import { ShieldAlertIcon, ShieldBanIcon } from "lucide-react";
+import { EnvelopeOpenIcon } from "@radix-ui/react-icons";
+import { AlertTriangle, ShieldAlertIcon, UserX } from "lucide-react";
 
 export const REASON_CONFIG = {
   invalid_email: {
@@ -23,22 +20,22 @@ export const REASON_CONFIG = {
     bgColor: "bg-red-50 dark:bg-red-950/30",
     borderColor: "border-red-200 dark:border-red-800",
   },
-  insufficient_permissions: {
-    icon: ShieldBanIcon,
-    title: "Insufficient Permissions",
+  account_suspended: {
+    title: "Account Suspended",
     message:
-      "Your current role doesn't have permission to access this resource.",
-    color: "text-amber-500",
-    bgColor: "bg-amber-50 dark:bg-amber-950/30",
-    borderColor: "border-amber-200 dark:border-amber-800",
+      "Your account has been temporarily suspended. Please contact support for assistance.",
+    icon: UserX,
+    color: "text-red-600",
+    bgColor: "bg-red-100 dark:bg-red-950/30",
+    borderColor: "border-red-300 dark:border-red-800",
   },
-  role_assignment_pending: {
-    icon: ExclamationTriangleIcon,
-    title: "Role Assignment Pending",
+  maintenance: {
+    title: "System Maintenance",
     message:
-      "Your account is being processed. Please contact an administrator to complete your setup.",
-    color: "text-blue-500",
-    bgColor: "bg-blue-50 dark:bg-blue-950/30",
-    borderColor: "border-blue-200 dark:border-blue-800",
+      "The platform is currently undergoing maintenance. Please try again later.",
+    icon: AlertTriangle,
+    color: "text-orange-600",
+    bgColor: "bg-orange-100 dark:bg-orange-950/30",
+    borderColor: "border-orange-300 dark:border-orange-800",
   },
 };

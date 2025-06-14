@@ -1,12 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { auth } from "@clerk/nextjs/server";
-import { Link } from "lucide-react";
+import { auth0 } from "@/lib/auth0";
 import { redirect } from "next/navigation";
 
 const HomePage = async () => {
-  const { userId } = await auth();
+  const session = await auth0.getSession();
 
-  if (userId) {
+  if (session?.user.sub) {
     redirect("/dashboard");
   }
 
@@ -24,7 +23,7 @@ const HomePage = async () => {
 
         <div className="space-y-4">
           <Button size="lg" asChild className="text-lg px-8 py-3">
-            <Link href="/sign-in">Get Started</Link>
+            <a href="/auth/login">Login</a>
           </Button>
 
           <p className="text-sm text-muted-foreground">

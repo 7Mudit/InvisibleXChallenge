@@ -1,8 +1,8 @@
 import { initTRPC, TRPCError } from "@trpc/server";
-import { auth } from "@clerk/nextjs/server";
 import { ZodError } from "zod";
 import Airtable from "airtable";
 import { AirtableTaskRecord } from "../schemas/task";
+import { auth0 } from "@/lib/auth0";
 
 if (!process.env.AIRTABLE_API_KEY) {
   throw new Error("AIRTABLE_API_KEY environment variable is required");
@@ -22,9 +22,10 @@ const tasksTable = AirtableBase<AirtableTaskRecord>(
 
 // Create context for tRPC
 export async function createTRPCContext() {
-  const { userId } = await auth();
+  const session = await auth0.getSession();
   return {
-    userId,
+    session,
+    userId: session?.user?.sub,
     airtable: {
       tasksTable,
     },
@@ -66,12 +67,13 @@ const withLogging = t.middleware(async ({ path, type, next }) => {
 
 // Middleware to check if user is authenticated
 const isAuthed = t.middleware(({ next, ctx }) => {
-  if (!ctx.userId) {
+  if (!ctx.userId || !ctx.session?.user) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
   return next({
     ctx: {
       ...ctx,
+      session: ctx.session,
       userId: ctx.userId,
     },
   });

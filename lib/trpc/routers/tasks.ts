@@ -23,7 +23,6 @@ import {
   addAlignmentToHistory,
   parseRubricContent,
 } from "@/lib/schemas/task";
-import { clerkClient } from "@clerk/nextjs/server";
 import z from "zod";
 
 class AirtableFieldManager {
@@ -145,32 +144,7 @@ export const tasksRouter = router({
       try {
         console.log("Starting task creation with client TaskID:", input.TaskID);
 
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "User email not found. Please ensure your account has a valid email address.",
-          });
-        }
-
-        if (!userEmail.endsWith("@invisible.email")) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message:
-              "Only @invisible.email accounts are authorized to create tasks.",
-          });
-        }
-
-        console.log(
-          "Checking for existing incomplete tasks for user:",
-          userEmail
-        );
+        const userEmail = ctx.session.user.email as string;
 
         // Check for existing incomplete tasks
         const existingTasks = await ctx.airtable.tasksTable
@@ -290,19 +264,7 @@ export const tasksRouter = router({
     .input(RubricV1InputSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User email not found.",
-          });
-        }
-
+        const userEmail = ctx.session.user.email;
         //  Validate new rubric JSON format with question/tag structure
         const validation = validateRubricJSON(input.rubricV1);
         if (!validation.isValid) {
@@ -418,19 +380,7 @@ export const tasksRouter = router({
     .input(RubricEnhanceInputSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User email not found.",
-          });
-        }
-
+        const userEmail = ctx.session.user.email;
         // UPDATED: Validate new rubric JSON format with question/tag structure
         const validation = validateRubricJSON(input.rubricContent);
         if (!validation.isValid) {
@@ -581,18 +531,7 @@ export const tasksRouter = router({
     .input(HumanEvalInputSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User email not found.",
-          });
-        }
+        const userEmail = ctx.session.user.email;
 
         const existingRecords = await ctx.airtable.tasksTable
           .select({
@@ -690,18 +629,7 @@ export const tasksRouter = router({
     .input(ModelEvalInputSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User email not found.",
-          });
-        }
+        const userEmail = ctx.session.user.email;
 
         const existingRecords = await ctx.airtable.tasksTable
           .select({
@@ -874,18 +802,7 @@ export const tasksRouter = router({
     .input(HumanEvalInputSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User email not found.",
-          });
-        }
+        const userEmail = ctx.session.user.email;
 
         const existingRecords = await ctx.airtable.tasksTable
           .select({
@@ -988,19 +905,7 @@ export const tasksRouter = router({
     .input(ModelEvalInputSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User email not found.",
-          });
-        }
-
+        const userEmail = ctx.session.user.email;
         const existingRecords = await ctx.airtable.tasksTable
           .select({
             filterByFormula: `AND({TaskID} = '${input.taskId}', {TrainerEmail} = '${userEmail}')`,
@@ -1110,18 +1015,7 @@ export const tasksRouter = router({
   // Get all Tasks for requested trainer
   getMyTasks: protectedProcedure.query(async ({ ctx }) => {
     try {
-      const client = await clerkClient();
-      const user = await client.users.getUser(ctx.userId);
-      const userEmail = user.emailAddresses.find(
-        (email) => email.id === user.primaryEmailAddressId
-      )?.emailAddress;
-
-      if (!userEmail) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "User email not found.",
-        });
-      }
+      const userEmail = ctx.session.user.email;
 
       console.log("Fetching tasks for user:", userEmail);
 
@@ -1161,18 +1055,7 @@ export const tasksRouter = router({
     .input(z.object({ taskId: z.string() }))
     .query(async ({ input, ctx }) => {
       try {
-        const client = await clerkClient();
-        const user = await client.users.getUser(ctx.userId);
-        const userEmail = user.emailAddresses.find(
-          (email) => email.id === user.primaryEmailAddressId
-        )?.emailAddress;
-
-        if (!userEmail) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User email not found.",
-          });
-        }
+        const userEmail = ctx.session.user.email;
 
         console.log("Fetching task:", input.taskId);
 
