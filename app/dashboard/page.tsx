@@ -1,15 +1,19 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { UserRole } from "@/lib/schemas/users.schema";
-import { useUser } from "@clerk/nextjs";
 import { AdminDashboard } from "./_components/dashboard/AdminDashboard";
 import { OperatorDashboard } from "./_components/dashboard/OperatorDashboard";
+import { useUser } from "@auth0/nextjs-auth0";
+import { api } from "@/lib/trpc/client";
 
 export default function DashboardPage() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoading } = useUser();
 
-  if (!isLoaded) {
+  const { data: userRole } = api.users.getCurrentUserRole.useQuery(undefined, {
+    enabled: !!user,
+  });
+
+  if (isLoading) {
     return (
       <div className="space-y-8">
         <div className="space-y-2">
@@ -37,9 +41,7 @@ export default function DashboardPage() {
     );
   }
 
-  const userRole = user?.publicMetadata?.role as UserRole;
-
-  if (userRole === "admin") {
+  if (userRole?.role === "admin") {
     return <AdminDashboard />;
   }
 

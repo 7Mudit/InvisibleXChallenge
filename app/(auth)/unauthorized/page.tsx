@@ -1,31 +1,25 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { SignOutButton, useUser } from "@clerk/nextjs";
-import Link from "next/link";
+
 import { REASON_CONFIG } from "./constants/reason_config";
-import { UserRole } from "@/lib/schemas/users.schema";
+import { useUser } from "@auth0/nextjs-auth0";
+import { LogOut } from "lucide-react";
 
 function UnauthorizedContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user, isLoaded } = useUser();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { user, isLoading } = useUser();
 
   const reason = searchParams.get("reason") as keyof typeof REASON_CONFIG;
-  const userEmail =
-    searchParams.get("email") || user?.primaryEmailAddress?.emailAddress;
+  const userEmail = searchParams.get("email") || user?.email;
 
   const config = REASON_CONFIG[reason] || REASON_CONFIG.invalid_email;
   const IconComponent = config.icon;
 
-  if (!mounted || !isLoaded) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/20">
         <div className="flex flex-col items-center space-y-4">
@@ -65,24 +59,20 @@ function UnauthorizedContent() {
               <p className="text-sm font-mono text-foreground break-all">
                 {userEmail}
               </p>
-              {(user?.publicMetadata?.role as UserRole) && (
-                <p className="text-xs text-muted-foreground">
-                  Role:{" "}
-                  <span className="capitalize font-medium">
-                    {user?.publicMetadata.role as string}
-                  </span>
-                </p>
-              )}
             </div>
           )}
 
           <div className="space-y-3">
             {user && (
-              <SignOutButton>
-                <Button variant="destructive" className="w-full">
-                  Sign Out
+              <a
+                href="/auth/logout"
+                className="flex items-center justify-center cursor-pointer "
+              >
+                <Button variant={"destructive"} className="w-full">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
                 </Button>
-              </SignOutButton>
+              </a>
             )}
 
             <Button
@@ -92,21 +82,13 @@ function UnauthorizedContent() {
             >
               Go to Home
             </Button>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full text-xs"
-              asChild
-            >
-              <Link href="/help">Need help? Contact Support</Link>
-            </Button>
           </div>
         </div>
 
         <div className="mt-6 text-center">
           <p className="text-xs text-muted-foreground">
-            If you believe this is an error, please contact your system
+            If you believe this is an error try logging out and signing in
+            again. If still not resolved, please contact your system
             administrator
           </p>
         </div>

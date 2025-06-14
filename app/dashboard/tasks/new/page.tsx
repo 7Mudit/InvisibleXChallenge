@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 
 import {
@@ -62,6 +61,7 @@ import {
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { api } from "@/lib/trpc/client";
 import { generateTaskId } from "@/lib/utils/task-utils";
+import { useUser } from "@auth0/nextjs-auth0";
 
 const BASE_DRIVE_URL =
   "https://drive.google.com/drive/u/5/folders/1wSO7QbJnuCiqXMntin1OooihJqkY0fae";
@@ -766,15 +766,11 @@ export default function NewTaskPage() {
                     <CardContent className="space-y-2">
                       <div className="text-xs">
                         <span className="text-muted-foreground">Email: </span>
-                        <span className="font-mono">
-                          {user.primaryEmailAddress?.emailAddress}
-                        </span>
+                        <span className="font-mono">{user.email}</span>
                       </div>
                       <div className="text-xs">
                         <span className="text-muted-foreground">Name: </span>
-                        <span>
-                          {user.firstName} {user.lastName}
-                        </span>
+                        <span>{user.name}</span>
                       </div>
                     </CardContent>
                   </Card>

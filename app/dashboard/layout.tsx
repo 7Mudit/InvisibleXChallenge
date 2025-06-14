@@ -7,10 +7,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Navbar } from "@/components/common/Navbar";
-import { useUser } from "@clerk/nextjs";
-import { UserRole } from "@/lib/schemas/users.schema";
 import { sidebarItems } from "@/constants/Sidebar";
-import Script from "next/script";
+import { useUser } from "@auth0/nextjs-auth0";
+import { api } from "@/lib/trpc/client";
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -22,7 +21,9 @@ export default function DashboardLayout({ children }: DashboardShellProps) {
   const pathname = usePathname();
   const { user } = useUser();
 
-  const userRole = user?.publicMetadata?.role as UserRole;
+  const { data: userRole } = api.users.getCurrentUserRole.useQuery(undefined, {
+    enabled: !!user,
+  });
 
   useEffect(() => {
     const checkScreenSize = () => {
@@ -40,7 +41,7 @@ export default function DashboardLayout({ children }: DashboardShellProps) {
 
   const filteredSidebarItems = sidebarItems.filter((item) => {
     if (!item.roles) return true;
-    return userRole && item.roles.includes(userRole);
+    return userRole?.role && item.roles.includes(userRole?.role);
   });
 
   return (
@@ -146,14 +147,6 @@ export default function DashboardLayout({ children }: DashboardShellProps) {
           </main>
         </div>
       </div>
-      {process.env.NODE_ENV === "development" ? (
-        <head>
-          <Script
-            crossOrigin="anonymous"
-            src="//unpkg.com/react-scan/dist/auto.global.js"
-          />
-        </head>
-      ) : null}
     </>
   );
 }
