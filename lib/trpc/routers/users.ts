@@ -127,12 +127,7 @@ export const usersRouter = router({
       const usersData = await usersResponse.json();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const appUsers = usersData.users.filter((user: any) => {
-        return user.app_metadata?.role?.sector_evals;
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const transformedUsers = appUsers.map((user: any) => ({
+      const transformedUsers = usersData.users.map((user: any) => ({
         id: user.user_id,
         email: user.email,
         firstName: user.given_name || user.name?.split(" ")[0] || "",
@@ -140,13 +135,12 @@ export const usersRouter = router({
           user.family_name || user.name?.split(" ").slice(1).join(" ") || "",
         username: user.username || user.email?.split("@")[0] || "",
         imageUrl: user.picture || "",
-        role: user.app_metadata?.role?.sector_evals,
+        role: user.app_metadata?.role?.sector_evals || user.app_metadata?.role,
+
         createdAt: user.created_at,
         lastSignInAt: user.last_login,
         emailVerified: user.email_verified,
       }));
-
-      console.log("Tranformed app users", transformedUsers);
 
       return {
         users: transformedUsers,

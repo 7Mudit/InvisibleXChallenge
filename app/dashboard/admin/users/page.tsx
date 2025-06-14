@@ -174,6 +174,10 @@ export default function AdminUsersPage() {
     if (!usersData?.users) return [];
 
     const filtered = usersData.users.filter((user: User) => {
+      const hasValidRole = user.role && user.role.trim() !== "";
+      if (!hasValidRole) {
+        return false;
+      }
       const matchesSearch =
         user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||

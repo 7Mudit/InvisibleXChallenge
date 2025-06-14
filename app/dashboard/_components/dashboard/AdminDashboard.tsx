@@ -153,7 +153,7 @@ export function AdminDashboard() {
               className="w-full group-hover:shadow-md transition-all duration-200"
             >
               <Link
-                href="/admin/users"
+                href="/dashboard/admin/users"
                 className="flex items-center justify-center"
               >
                 Manage Users
