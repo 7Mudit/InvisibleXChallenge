@@ -621,7 +621,7 @@ export default function ModelEvalGPTPage() {
                 </span>
                 {jsonValid && (
                   <Badge variant={"secondary"} className="text-green-600">
-                    ALl {rubricQuestions.length} responses provided
+                    All {rubricQuestions.length} responses provided
                   </Badge>
                 )}
               </div>
