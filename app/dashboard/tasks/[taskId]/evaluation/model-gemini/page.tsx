@@ -71,7 +71,7 @@ export default function ModelEvalGeminiPage() {
   const [rubricQuestions, setRubricQuestions] = useState<RubricQuestion[]>([]);
   const [jsonInput, setJsonInput] = useState("");
   const [jsonError, setJsonError] = useState("");
-  const [jsonWarnings, setJsonWarnings] = useState<string[]>();
+  const [jsonWarnings, setJsonWarnings] = useState<string[]>([]);
   const [jsonValid, setJsonValid] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [validationSummary, setValidationSummary] = useState<any>(null);
