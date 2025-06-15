@@ -191,7 +191,7 @@ export default function ModelEvalGPTPage() {
     }
   };
 
-  const handleJsonInoutChange = (value: string) => {
+  const handleJsonInputChange = (value: string) => {
     setJsonInput(value);
     form.setValue("jsonInput", value);
   };
@@ -553,7 +553,7 @@ export default function ModelEvalGPTPage() {
               <Textarea
                 id="jsonInput"
                 value={jsonInput}
-                onChange={(e) => handleJsonInoutChange(e.target.value)}
+                onChange={(e) => handleJsonInputChange(e.target.value)}
                 placeholder={`Paste the AI's JSON response here...\n\nExample:\n${exampleJson}`}
                 className={cn(
                   "font-mono text-sm min-h-32",
