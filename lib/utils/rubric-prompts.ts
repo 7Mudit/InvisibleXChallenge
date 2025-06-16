@@ -336,7 +336,14 @@ export function generateRubricCheckerPrompt(
     return acc;
   }, {} as Record<string, { question: string; tag: string }>);
 
-  return `You will evaluate a model response against specific rubric criteria. For each criterion, answer "Yes" if the response meets the requirement or "No" if it doesn't.
+  return `You are evaluating an AI model's response against specific rubric criteria. 
+
+**CRITICAL: You must respond with ONLY a valid JSON object in the exact format specified below. Do not include any additional text, explanations, or markdown formatting.**
+
+**Required JSON Format:**
+{"rubric_1":"Yes","rubric_2":"No","rubric_3":"Yes","rubric_4":"Yes","rubric_5":"No",...,"rubric_${
+    validRubrics.length
+  }":"Yes"}
 
 **Question/Task:**
 ${task.Prompt}
@@ -352,15 +359,9 @@ ${JSON.stringify(rubricJson, null, 2)}
 2. Check if the model response meets that specific requirement
 3. Respond with "Yes" if the criterion is met, "No" if it is not met
 4. Be objective and consistent in your evaluation
+5. **IMPORTANT: Return ONLY the JSON object with no additional text**
 
-**Format your response as:**
-rubric_1: [Yes/No]
-rubric_2: [Yes/No]
-rubric_3: [Yes/No]
-...
-(continue for all rubric items)
-
-Please evaluate the model response against each criterion:`;
+Evaluate the model response and return your assessment in the required JSON format:`;
 }
 
 /**
@@ -503,120 +504,226 @@ export function validateRubricRequirements(rubricItems: RubricItem[]): {
 }
 
 /**
- * Format rubric data for submission to backend (updated for new format)
+ * Validate JSON evaluation response format with comprehensive error checking
  */
-export function formatRubricForSubmission(rubricItems: RubricItem[]): {
-  rubricJson: string;
-  humanScoresJson: string;
-  aiScoresJson: string;
-  rubricItemsJson: string;
+export function validateEvaluationJSON(
+  jsonString: string,
+  expectedRubricCount: number
+): {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  parsedData?: Record<string, "Yes" | "No">;
+  summary?: {
+    totalKeys: number;
+    validKeys: number;
+    invalidKeys: number;
+    missingKeys: number;
+    extraKeys: number;
+    validValues: number;
+    invalidValues: number;
+  };
 } {
-  const validRubrics = rubricItems.filter(
-    (item) => item.question.trim() && item.tag.trim()
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Check if input is empty or just whitespace
+  if (!jsonString.trim()) {
+    return {
+      isValid: false,
+      errors: ["JSON input cannot be empty"],
+      warnings: [],
+    };
+  }
+
+  // Check for potential duplicate keys by looking at the raw string
+  // This catches duplicates before JSON.parse() removes them
+  const duplicateKeyPattern = /"([^"]+)"\s*:/g;
+  const foundKeys: string[] = [];
+  const duplicateKeys: string[] = [];
+  let match;
+
+  while ((match = duplicateKeyPattern.exec(jsonString)) !== null) {
+    const key = match[1];
+    if (foundKeys.includes(key)) {
+      if (!duplicateKeys.includes(key)) {
+        duplicateKeys.push(key);
+      }
+    } else {
+      foundKeys.push(key);
+    }
+  }
+
+  if (duplicateKeys.length > 0) {
+    errors.push(
+      `Duplicate keys found: ${duplicateKeys.join(
+        ", "
+      )}. Each key should appear only once.`
+    );
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonString);
+  } catch (parseError) {
+    // Try to give more specific error messages for common JSON errors
+    const errorMessage =
+      parseError instanceof Error ? parseError.message : String(parseError);
+
+    if (errorMessage.includes("Unexpected token")) {
+      errors.push(
+        "Invalid JSON syntax. Check for missing quotes, commas, or brackets."
+      );
+    } else if (errorMessage.includes("Unexpected end")) {
+      errors.push("Incomplete JSON. The JSON appears to be cut off.");
+    } else {
+      errors.push(`Invalid JSON format: ${errorMessage}`);
+    }
+
+    return {
+      isValid: false,
+      errors,
+      warnings,
+    };
+  }
+
+  // Check if it's an object
+  if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
+    errors.push("Response must be a JSON object, not an array or other type");
+    return {
+      isValid: false,
+      errors,
+      warnings,
+    };
+  }
+
+  // Generate expected keys
+  const expectedKeys = Array.from(
+    { length: expectedRubricCount },
+    (_, i) => `rubric_${i + 1}`
   );
 
-  // NEW: Rubric JSON in new format with actual tags
-  const rubricJson = validRubrics.reduce((acc, item, index) => {
-    acc[`rubric_${index + 1}`] = {
-      question: item.question,
-      tag: item.tag, // Use actual tag from item
-    };
-    return acc;
-  }, {} as Record<string, { question: string; tag: string }>);
+  // Get actual keys and analyze them
+  const actualKeys = Object.keys(parsed);
+  const validKeys: string[] = [];
+  const invalidKeys: string[] = [];
+  const missingKeys: string[] = [];
+  const extraKeys: string[] = [];
 
-  // Human scores JSON (unchanged)
-  const humanScores = validRubrics.reduce((acc, item, index) => {
-    acc[`rubric_${index + 1}`] = item.humanScore === true ? "Yes" : "No";
-    return acc;
-  }, {} as Record<string, string>);
+  // Check for missing expected keys
+  for (const expectedKey of expectedKeys) {
+    if (actualKeys.includes(expectedKey)) {
+      validKeys.push(expectedKey);
+    } else {
+      missingKeys.push(expectedKey);
+    }
+  }
 
-  // AI scores JSON (unchanged)
-  const aiScores = validRubrics.reduce((acc, item, index) => {
-    acc[`rubric_${index + 1}`] = item.aiScore === true ? "Yes" : "No";
-    return acc;
-  }, {} as Record<string, string>);
+  // Check for invalid/extra keys
+  for (const actualKey of actualKeys) {
+    if (!expectedKeys.includes(actualKey)) {
+      // Check if it looks like a rubric key but has wrong format
+      if (actualKey.startsWith("rubric")) {
+        invalidKeys.push(actualKey);
+      } else {
+        extraKeys.push(actualKey);
+      }
+    }
+  }
 
-  // Complete rubric items with metadata (updated with actual tags)
-  const rubricItemsWithMetadata = validRubrics.map((item, index) => ({
-    rubricNumber: index + 1,
-    question: item.question,
-    tag: item.tag, // Use actual tag
-    humanScore: item.humanScore,
-    aiScore: item.aiScore,
-  }));
+  // Report key issues
+  if (actualKeys.length !== expectedRubricCount) {
+    errors.push(
+      `Expected exactly ${expectedRubricCount} rubric keys, but found ${actualKeys.length}`
+    );
+  }
+
+  if (missingKeys.length > 0) {
+    errors.push(`Missing required keys: ${missingKeys.join(", ")}`);
+  }
+
+  if (invalidKeys.length > 0) {
+    errors.push(
+      `Invalid rubric key format: ${invalidKeys.join(", ")}. ` +
+        `Keys should be "rubric_1", "rubric_2", etc.`
+    );
+  }
+
+  if (extraKeys.length > 0) {
+    errors.push(`Unexpected keys found: ${extraKeys.join(", ")}`);
+  }
+
+  // Check values
+  const validValues: string[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const invalidValues: Array<{ key: string; value: any }> = [];
+
+  for (const [key, value] of Object.entries(parsed)) {
+    if (value === "Yes" || value === "No") {
+      validValues.push(key);
+    } else {
+      invalidValues.push({ key, value });
+    }
+  }
+
+  // Report value issues
+  if (invalidValues.length > 0) {
+    const invalidValueMessages = invalidValues.map(
+      ({ key, value }) => `${key}: "${value}"`
+    );
+    errors.push(
+      `Invalid values found (must be "Yes" or "No"): ${invalidValueMessages.join(
+        ", "
+      )}`
+    );
+
+    // Give helpful suggestions for common mistakes
+    for (const { value } of invalidValues) {
+      const stringValue = String(value).toLowerCase();
+      if (["true", "false"].includes(stringValue)) {
+        warnings.push('Use "Yes"/"No" instead of "true"/"false"');
+      } else if (["1", "0"].includes(stringValue)) {
+        warnings.push('Use "Yes"/"No" instead of 1/0');
+      } else if (["y", "n"].includes(stringValue)) {
+        warnings.push('Use full words "Yes"/"No" instead of "Y"/"N"');
+      } else if (["maybe", "unknown", "unclear"].includes(stringValue)) {
+        warnings.push('Evaluation must be definitive: use "Yes" or "No" only');
+      }
+    }
+  }
+
+  // Create summary
+  const summary = {
+    totalKeys: actualKeys.length,
+    validKeys: validKeys.length,
+    invalidKeys: invalidKeys.length + extraKeys.length,
+    missingKeys: missingKeys.length,
+    extraKeys: extraKeys.length,
+    validValues: validValues.length,
+    invalidValues: invalidValues.length,
+  };
+
+  // Additional helpful warnings
+  if (actualKeys.length > expectedRubricCount) {
+    warnings.push(
+      `You have ${
+        actualKeys.length - expectedRubricCount
+      } extra keys that will be ignored`
+    );
+  }
+
+  if (validKeys.length > 0 && missingKeys.length > 0) {
+    warnings.push(
+      `Partially complete: ${validKeys.length}/${expectedRubricCount} keys provided`
+    );
+  }
 
   return {
-    rubricJson: JSON.stringify(rubricJson),
-    humanScoresJson: JSON.stringify(humanScores),
-    aiScoresJson: JSON.stringify(aiScores),
-    rubricItemsJson: JSON.stringify(rubricItemsWithMetadata),
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+    parsedData: errors.length === 0 ? parsed : undefined,
+    summary,
   };
-}
-
-/**
- * Convert rubric items array to new JSON format with actual tags
- */
-export function rubricItemsToNewFormat(
-  items: Array<{ question: string; tag: string }>
-): string {
-  const rubric = items.reduce((acc, item, index) => {
-    acc[`rubric_${index + 1}`] = {
-      question: item.question,
-      tag: item.tag, // Use actual tag from item
-    };
-    return acc;
-  }, {} as Record<string, { question: string; tag: string }>);
-
-  return JSON.stringify(rubric, null, 2);
-}
-
-/**
- * Convert new format JSON to rubric items array
- */
-export function newFormatToRubricItems(
-  rubricJson: string
-): Array<{ question: string; tag: string }> {
-  try {
-    const rubric = JSON.parse(rubricJson);
-
-    return (
-      Object.entries(rubric)
-        .filter(([key]) => key.startsWith("rubric_"))
-        .sort(([a], [b]) => {
-          const numA = parseInt(a.replace("rubric_", ""));
-          const numB = parseInt(b.replace("rubric_", ""));
-          return numA - numB;
-        })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map(([, value]: [string, any]) => ({
-          question: value.question || "",
-          tag: value.tag || "", // Extract actual tag
-        }))
-    );
-  } catch (error) {
-    console.error("Error converting new format to rubric items:", error);
-    return [];
-  }
-}
-
-/**
- * Generate example rubric in new format for documentation
- */
-export function generateExampleRubric(): string {
-  const exampleRubric = {
-    rubric_1: {
-      question: "Does the response clearly explain the main concept?",
-      tag: "clarity",
-    },
-    rubric_2: {
-      question: "Does the response provide specific examples?",
-      tag: "examples",
-    },
-    rubric_3: {
-      question: "Does the response address all parts of the question?",
-      tag: "completeness",
-    },
-  };
-
-  return JSON.stringify(exampleRubric, null, 2);
 }
