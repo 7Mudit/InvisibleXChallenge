@@ -49,7 +49,7 @@ export function Navbar({ sidebarOpen, setSidebarOpen, isMobile }: NavbarProps) {
     switch (role) {
       case "admin":
         return "destructive";
-      case "leads":
+      case "lead":
         return "default";
       default:
         return "secondary";
@@ -60,7 +60,7 @@ export function Navbar({ sidebarOpen, setSidebarOpen, isMobile }: NavbarProps) {
     switch (role) {
       case "admin":
         return <Shield className="h-3 w-3" />;
-      case "leads":
+      case "lead":
         return <User className="h-3 w-3" />;
       default:
         return null;

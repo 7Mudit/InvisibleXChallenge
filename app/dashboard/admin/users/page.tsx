@@ -72,7 +72,7 @@ const getRoleBadge = (role: UserRole) => {
         className:
           "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200",
       };
-    case "leads":
+    case "lead":
       return {
         label: "Lead",
         icon: Shield,
@@ -94,7 +94,7 @@ const getRoleHierarchy = (role: UserRole): number => {
   switch (role) {
     case "admin":
       return 3;
-    case "leads":
+    case "lead":
       return 2;
     case "operator":
       return 1;
@@ -304,7 +304,7 @@ export default function AdminUsersPage() {
             </CardContent>
           </Card>
 
-          {["admin", "leads", "operator"].map((role) => {
+          {["admin", "lead", "operator"].map((role) => {
             const count = usersData.users.filter(
               (u: { role: string }) => u.role === role
             ).length;
@@ -365,7 +365,7 @@ export default function AdminUsersPage() {
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="leads">Leads</SelectItem>
+                  <SelectItem value="lead">Lead</SelectItem>
                   <SelectItem value="operator">Operator</SelectItem>
                 </SelectContent>
               </Select>
@@ -558,7 +558,7 @@ export default function AdminUsersPage() {
                           <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
                             Change Role
                           </DropdownMenuLabel>
-                          {(["operator", "leads", "admin"] as UserRole[]).map(
+                          {(["operator", "lead", "admin"] as UserRole[]).map(
                             (role) => {
                               if (role === user.role) return null;
                               const targetBadge = getRoleBadge(role);

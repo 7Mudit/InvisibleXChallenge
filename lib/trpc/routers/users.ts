@@ -210,8 +210,8 @@ export const usersRouter = router({
             },
             body: JSON.stringify({
               app_metadata: {
-                role: input.newRole,
-              },
+                role: { sector_evals: input.newRole }
+              }
             }),
           }
         );
