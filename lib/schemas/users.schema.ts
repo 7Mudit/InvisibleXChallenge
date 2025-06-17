@@ -34,11 +34,11 @@ export interface UserApiResponse {
   user?: User;
 }
 
-export const UserRoleSchema = z.enum(["operator", "leads", "admin"]);
+export const UserRoleSchema = z.enum(["operator", "lead", "admin"]);
 
 export type UserRole = z.infer<typeof UserRoleSchema>;
 
 // providing access to  both leads and admins to see admin routes currently
 export const canAccessAdminRoutes = (userRole: UserRole): boolean => {
-  return userRole == "admin" || userRole === "leads";
+  return userRole == "admin" || userRole === "lead";
 };

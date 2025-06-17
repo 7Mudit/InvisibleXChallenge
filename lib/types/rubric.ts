@@ -154,37 +154,6 @@ export function validateNewRubricFormat(jsonString: string): {
   }
 }
 
-// Convert between formats
-export function convertRubricItemsToNewFormat(
-  items: RubricItemInput[]
-): NewRubricFormat {
-  const result: NewRubricFormat = {};
-
-  items.forEach((item, index) => {
-    result[`rubric_${index + 1}`] = {
-      question: item.question,
-      tag: item.tag,
-    };
-  });
-
-  return result;
-}
-
-export function convertNewFormatToRubricItems(
-  format: NewRubricFormat
-): RubricItemInput[] {
-  return Object.entries(format)
-    .sort(([a], [b]) => {
-      const numA = parseInt(a.replace("rubric_", ""));
-      const numB = parseInt(b.replace("rubric_", ""));
-      return numA - numB;
-    })
-    .map(([, value]) => ({
-      question: value.question,
-      tag: value.tag,
-    }));
-}
-
 //  Create RubricItem array with IDs for forms
 export function createRubricItemsWithIds(
   inputs: RubricItemInput[]

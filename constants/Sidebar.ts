@@ -66,7 +66,7 @@ export const getRoleBadgeStyling = (role: string) => {
         className:
           "bg-gradient-to-r from-purple-500 to-purple-600 text-white border-purple-600",
       };
-    case "leads":
+    case "lead":
       return {
         variant: "default" as const,
         className:
