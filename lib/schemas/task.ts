@@ -98,16 +98,20 @@ export const CreateTaskSchema = z.object({
       "Gemini response cannot be just whitespace"
     ),
 
-  requestFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
-
-  responseFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
+  requestFiles: z
+    .array(FileSchema)
+    .min(1, "At least one request file is required")
+    .max(10, "Maximum 10 files allowed"),
+  responseGeminiFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
+  responseGptFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
 });
 
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 
 export const ServerTaskSchema = CreateTaskSchema.omit({
-  responseFiles: true,
   requestFiles: true,
+  responseGeminiFiles: true,
+  responseGptFiles: true,
 }).extend({
   TaskID: z.string().uuid(),
   Sources: z.string().url(),

@@ -23,7 +23,8 @@ export class GoogleDriveService {
     taskFolderId: string;
     taskFolderUrl: string;
     requestFolderId: string;
-    responseFolderId: string;
+    responseGeminiFolderId: string;
+    responseGptFolderId: string;
   }> {
     try {
       // Create main task folder
@@ -46,10 +47,19 @@ export class GoogleDriveService {
         },
       });
 
-      // Create response subfolder
-      const responseFolder = await this.drive.files.create({
+      // Create response_gemini subfolder
+      const responseGeminiFolder = await this.drive.files.create({
         requestBody: {
-          name: "response",
+          name: "response_gemini",
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [taskFolderId],
+        },
+      });
+
+      // Create response_gpt subfolder
+      const responseGptFolder = await this.drive.files.create({
+        requestBody: {
+          name: "response_gpt",
           mimeType: "application/vnd.google-apps.folder",
           parents: [taskFolderId],
         },
@@ -61,7 +71,8 @@ export class GoogleDriveService {
         taskFolderId,
         taskFolderUrl,
         requestFolderId: requestFolder.data.id!,
-        responseFolderId: responseFolder.data.id!,
+        responseGeminiFolderId: responseGeminiFolder.data.id!,
+        responseGptFolderId: responseGptFolder.data.id!,
       };
     } catch (error) {
       console.error("Error creating Google Drive folders:", error);

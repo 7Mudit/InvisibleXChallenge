@@ -206,14 +206,25 @@ export const tasksRouter = router({
           );
         }
 
-        console.log("Uploading response files...");
-        for (const file of input.responseFiles) {
+        console.log("Uploading response_gemini files...");
+        for (const file of input.responseGeminiFiles) {
           const fileBuffer = base64ToBuffer(file.data);
           await driveService.uploadFile(
             fileBuffer,
             file.name,
             file.type,
-            folderResult.responseFolderId
+            folderResult.responseGeminiFolderId
+          );
+        }
+
+        console.log("Uploading response_gpt files...");
+        for (const file of input.responseGptFiles) {
+          const fileBuffer = base64ToBuffer(file.data);
+          await driveService.uploadFile(
+            fileBuffer,
+            file.name,
+            file.type,
+            folderResult.responseGptFolderId
           );
         }
 
@@ -259,7 +270,8 @@ export const tasksRouter = router({
             taskId: taskId,
             folderUrl: folderResult.taskFolderUrl,
             requestFileCount: input.requestFiles.length,
-            responseFileCount: input.responseFiles.length,
+            responseGeminiFileCount: input.responseGeminiFiles.length,
+            responseGptFileCount: input.responseGptFiles.length,
             success: true,
           };
         } catch (validationError) {
