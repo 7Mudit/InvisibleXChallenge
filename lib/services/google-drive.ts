@@ -140,6 +140,7 @@ export class GoogleDriveService {
       }
     } catch (error) {
       console.error("Error setting folder permissions:", error);
+      throw new Error(`Failed to set folder permissions for folderId: ${folderId}`);
     }
   }
 }
