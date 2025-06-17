@@ -27,6 +27,31 @@ export const TaskStatus = z.enum([
 
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // keeping this 10MB for now
+const ACCEPTED_FILE_TYPES = [
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/json",
+  "image/png",
+  "image/jpeg",
+  "application/zip",
+];
+
+export const FileSchema = z.object({
+  name: z.string(),
+  size: z.number().max(MAX_FILE_SIZE, "File must be less than 10MB"),
+  type: z
+    .string()
+    .refine(
+      (type) => ACCEPTED_FILE_TYPES.includes(type),
+      "File type not supported"
+    ),
+  data: z.string(),
+});
+
 // Rubric item interface with question and tag
 export interface RubricItem {
   question: string;
@@ -38,7 +63,6 @@ export type RubricFormat = Record<string, RubricItem>;
 
 // Original task creation schema
 export const CreateTaskSchema = z.object({
-  TaskID: z.string().uuid("Task ID must be a valid UUID"),
   Prompt: z
     .string()
     .min(50, "Task description must be at least 50 characters")
@@ -48,14 +72,6 @@ export const CreateTaskSchema = z.object({
     ),
 
   ProfessionalSector: ProfessionalSector,
-
-  Sources: z
-    .string()
-    .url("Please provide a valid Google Drive URL")
-    .refine(
-      (url) => url.includes("drive.google.com"),
-      "Must be a Google Drive URL"
-    ),
 
   OpenSourceConfirmed: z
     .boolean()
@@ -81,11 +97,20 @@ export const CreateTaskSchema = z.object({
       (val) => val.trim().length >= 50,
       "Gemini response cannot be just whitespace"
     ),
+
+  requestFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
+
+  responseFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
 });
 
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 
-export const ServerTaskSchema = CreateTaskSchema.extend({
+export const ServerTaskSchema = CreateTaskSchema.omit({
+  responseFiles: true,
+  requestFiles: true,
+}).extend({
+  TaskID: z.string().uuid(),
+  Sources: z.string().url(),
   TrainerEmail: z
     .string()
     .email("Must be a valid email address")
@@ -94,7 +119,6 @@ export const ServerTaskSchema = CreateTaskSchema.extend({
       "Must be an @invisible.email account"
     ),
 });
-
 export type ServerTaskInput = z.infer<typeof ServerTaskSchema>;
 
 // Airtable record interface with all new fields
@@ -388,20 +412,18 @@ export function addAlignmentToHistory(
 }
 
 // Utility functions
-export function addServerFields(
-  frontendData: CreateTaskInput,
-  trainerEmail: string
-): ServerTaskInput {
-  return {
-    ...frontendData,
-    TrainerEmail: trainerEmail,
-  };
-}
+// export function addServerFields(
+//   frontendData: CreateTaskInput,
+//   trainerEmail: string
+// ): ServerTaskInput {
+//   return {
+//     ...frontendData,
+//     TrainerEmail: trainerEmail,
+//   };
+// }
 
 export function toAirtableFormat(
-  serverData: ServerTaskInput,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  taskID: string
+  serverData: ServerTaskInput
 ): Omit<AirtableTaskRecord, keyof FieldSet> {
   return {
     TaskID: serverData.TaskID,

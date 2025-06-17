@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -25,7 +25,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -41,15 +40,18 @@ import {
   Globe,
   Shield,
   Bot,
-  ExternalLink,
   Loader2,
   AlertTriangle,
   Clock,
   ArrowRight,
   Eye,
-  Copy,
   FolderOpen,
   Upload,
+  UploadCloud,
+  XIcon,
+  FileTextIcon,
+  ExternalLinkIcon,
+  CheckCircleIcon,
 } from "lucide-react";
 
 import {
@@ -60,26 +62,198 @@ import {
 } from "@/lib/schemas/task";
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { api } from "@/lib/trpc/client";
-import { generateTaskId } from "@/lib/utils/task-utils";
 import { useUser } from "@auth0/nextjs-auth0";
+import { useDropzone } from "react-dropzone";
 
-const BASE_DRIVE_URL =
-  "https://drive.google.com/drive/u/5/folders/1wSO7QbJnuCiqXMntin1OooihJqkY0fae";
+// const BASE_DRIVE_URL =
+//   "https://drive.google.com/drive/u/5/folders/1wSO7QbJnuCiqXMntin1OooihJqkY0fae";
+
+interface FileData {
+  name: string;
+  size: number;
+  type: string;
+  data: string; // base64 encoded
+}
+
+interface FileUploadProps {
+  files: FileData[];
+  onFilesChange: (files: FileData[]) => void;
+  maxFiles?: number;
+  label: string;
+  description: string;
+}
+
+// Helper to convert File to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove data:type;base64, prefix
+      const base64 = result.split(",")[1];
+      resolve(base64);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
+function FileUpload({
+  files,
+  onFilesChange,
+  maxFiles = 10,
+  label,
+  description,
+}: FileUploadProps) {
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const onDrop = useCallback(
+    async (acceptedFiles: File[]) => {
+      if (files.length + acceptedFiles.length > maxFiles) {
+        toast.error(`Maximum ${maxFiles} files allowed`);
+        return;
+      }
+
+      setIsProcessing(true);
+      try {
+        const newFileData: FileData[] = [];
+
+        for (const file of acceptedFiles) {
+          const base64Data = await fileToBase64(file);
+          newFileData.push({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            data: base64Data,
+          });
+        }
+
+        onFilesChange([...files, ...newFileData]);
+      } catch (error) {
+        toast.error("Error processing files");
+        console.error(error);
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [files, onFilesChange, maxFiles]
+  );
+
+  const removeFile = (index: number) => {
+    const newFiles = files.filter((_, i) => i !== index);
+    onFilesChange(newFiles);
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "application/pdf": [".pdf"],
+      "text/plain": [".txt"],
+      "text/csv": [".csv"],
+      "application/vnd.ms-excel": [".xls"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
+        ".xlsx",
+      ],
+      "application/json": [".json"],
+      "image/png": [".png"],
+      "image/jpeg": [".jpg", ".jpeg"],
+      "application/zip": [".zip"],
+    },
+    maxSize: 10 * 1024 * 1024, // 10MB
+    multiple: true,
+    disabled: isProcessing,
+  });
+
+  return (
+    <div className="space-y-4">
+      <div
+        {...getRootProps()}
+        className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+          isDragActive
+            ? "border-primary bg-primary/5"
+            : isProcessing
+            ? "border-muted-foreground/25 bg-muted/50 cursor-not-allowed"
+            : "border-muted-foreground/25 hover:border-primary/50"
+        }`}
+      >
+        <input {...getInputProps()} />
+        {isProcessing ? (
+          <>
+            <Loader2 className="mx-auto h-8 w-8 text-muted-foreground mb-2 animate-spin" />
+            <p className="text-sm font-medium">Processing files...</p>
+          </>
+        ) : (
+          <>
+            <UploadCloud className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
+            <p className="text-sm font-medium">{label}</p>
+            <p className="text-xs text-muted-foreground mt-1">{description}</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Drag files here or click to browse (Max: {maxFiles} files, 10MB
+              each)
+            </p>
+          </>
+        )}
+      </div>
+
+      {files.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Selected Files ({files.length})</p>
+          {files.map((file, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between bg-muted/50 p-2 rounded"
+            >
+              <div className="flex items-center space-x-2">
+                <FileTextIcon className="h-4 w-4" />
+                <span className="text-sm truncate">{file.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  ({(file.size / 1024 / 1024).toFixed(4)} MB)
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => removeFile(index)}
+              >
+                <XIcon className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function NewTaskPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [generatedTaskId, setGeneratedTaskId] = useState<string>("");
+  const [createdTaskInfo, setCreatedTaskInfo] = useState<{
+    taskId: string;
+    folderUrl: string;
+    requestFileCount: number;
+    responseFileCount: number;
+  } | null>(null);
+
   const router = useRouter();
   const { user } = useUser();
 
-  const workflowSteps = getWorkflowSteps();
+  const form = useForm<CreateTaskInput>({
+    resolver: zodResolver(CreateTaskSchema),
+    defaultValues: {
+      Prompt: "",
+      ProfessionalSector: undefined,
+      OpenSourceConfirmed: false,
+      LicenseNotes: "",
+      GPTResponse: "",
+      GeminiResponse: "",
+      requestFiles: [],
+      responseFiles: [],
+    },
+  });
 
-  // Generate TaskID on component mount
-  useEffect(() => {
-    const taskId = generateTaskId();
-    setGeneratedTaskId(taskId);
-  }, []);
+  const workflowSteps = getWorkflowSteps();
 
   // Query for existing incomplete tasks
   const {
@@ -95,12 +269,20 @@ export default function NewTaskPage() {
   const currentIncompleteTask = incompleteTasks[0];
 
   const createTaskMutation = api.tasks.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success("Task created successfully!", {
-        description: "You can now view it in your submitted tasks.",
+        description: `Task ${result.taskId} created with ${result.requestFileCount} request files and ${result.responseFileCount} response files.`,
+      });
+      setCreatedTaskInfo({
+        taskId: result.taskId,
+        folderUrl: result.folderUrl,
+        requestFileCount: result.requestFileCount,
+        responseFileCount: result.responseFileCount,
       });
       setIsSubmitting(false);
-      router.push("/dashboard/tasks/submitted");
+      setTimeout(() => {
+        router.push(`/dashboard/tasks/${result.taskId}`);
+      }, 5000);
     },
     onError: (error) => {
       setIsSubmitting(false);
@@ -152,27 +334,6 @@ export default function NewTaskPage() {
     },
   });
 
-  const form = useForm<CreateTaskInput>({
-    resolver: zodResolver(CreateTaskSchema),
-    defaultValues: {
-      TaskID: generatedTaskId,
-      Prompt: "",
-      ProfessionalSector: undefined,
-      Sources: "",
-      OpenSourceConfirmed: false,
-      LicenseNotes: "",
-      GPTResponse: "",
-      GeminiResponse: "",
-    },
-  });
-
-  // Update form when taskId is generated
-  useEffect(() => {
-    if (generatedTaskId) {
-      form.setValue("TaskID", generatedTaskId);
-    }
-  }, [generatedTaskId, form]);
-
   const onSubmit = async (data: CreateTaskInput) => {
     if (hasIncompleteTasks) {
       toast.error("Cannot create new task", {
@@ -197,10 +358,72 @@ export default function NewTaskPage() {
     (sector) => sector.value === form.watch("ProfessionalSector")
   );
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard!");
-  };
+  // const copyToClipboard = (text: string) => {
+  //   navigator.clipboard.writeText(text);
+  //   toast.success("Copied to clipboard!");
+  // };
+
+  // Show success state
+  if (createdTaskInfo) {
+    return (
+      <div className="container mx-auto py-8 px-4 max-w-4xl">
+        <Card className="bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2 text-green-800 dark:text-green-400">
+              <CheckCircleIcon className="h-6 w-6" />
+              <span>Task Created Successfully!</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Task ID:</p>
+                <code className="bg-muted px-2 py-1 rounded text-sm block">
+                  {createdTaskInfo.taskId}
+                </code>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Files Uploaded:</p>
+                <div className="flex space-x-4 text-sm">
+                  <span>Request: {createdTaskInfo.requestFileCount}</span>
+                  <span>Response: {createdTaskInfo.responseFileCount}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Google Drive Folder:</p>
+              <div className="flex items-center space-x-2">
+                <code className="bg-muted px-2 py-1 rounded text-xs flex-1 truncate">
+                  {createdTaskInfo.folderUrl}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    window.open(createdTaskInfo.folderUrl, "_blank")
+                  }
+                >
+                  <ExternalLinkIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <Alert>
+              <FolderOpen className="h-4 w-4" />
+              <AlertTitle>Task Setup Complete</AlertTitle>
+              <AlertDescription>
+                Your task has been created with automatic folder structure and
+                file uploads. You&apos;ll be redirected to the task page
+                shortly.
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Show loading state while checking for existing tasks
   if (tasksLoading) {
@@ -258,30 +481,6 @@ export default function NewTaskPage() {
             Create a new evaluation task with AI model responses.
           </p>
         </div>
-
-        {/* Task ID Display */}
-        {generatedTaskId && (
-          <div className="bg-muted/30 border border-border/30 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-foreground">
-                  Generated Task ID
-                </h3>
-                <p className="text-lg font-mono text-primary">
-                  {generatedTaskId}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => copyToClipboard(generatedTaskId)}
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Copy
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/*  Incomplete Task Warning */}
         {hasIncompleteTasks && currentIncompleteTask && (
@@ -425,6 +624,69 @@ export default function NewTaskPage() {
                   </CardContent>
                 </Card>
 
+                {/* File Uploads */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <Upload className="h-5 w-5" />
+                      <span>File Uploads</span>
+                    </CardTitle>
+                    <CardDescription>
+                      Upload source materials and model responses that will be
+                      automatically organized in Google Drive.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <FormField
+                      control={form.control}
+                      name="requestFiles"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Request Files *</FormLabel>
+                          <FormControl>
+                            <FileUpload
+                              files={field.value}
+                              onFilesChange={field.onChange}
+                              label="Upload Request Files"
+                              description="Upload all source materials, documents, and inputs for the task"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            These files will be stored in the
+                            &lsquo;request&rsquo; folder and represent the task
+                            inputs.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="responseFiles"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Response Files *</FormLabel>
+                          <FormControl>
+                            <FileUpload
+                              files={field.value}
+                              onFilesChange={field.onChange}
+                              label="Upload Response Files"
+                              description="Upload model outputs, generated content, and response materials"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            These files will be stored in the
+                            &lsquo;response&rsquo; folder and represent the
+                            model outputs.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </CardContent>
+                </Card>
+
                 {/* AI Model Responses */}
                 <Card className="bg-gradient-to-br from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20 border-purple-200 dark:border-purple-800">
                   <CardHeader>
@@ -489,7 +751,7 @@ export default function NewTaskPage() {
                   <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
                       <Globe className="h-5 w-5" />
-                      <span>Sources & Licensing</span>
+                      <span>Licensing</span>
                     </CardTitle>
                     <CardDescription>
                       Upload source materials to Google Drive and confirm
@@ -497,40 +759,6 @@ export default function NewTaskPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="Sources"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Google Drive URL *</FormLabel>
-                          <FormControl>
-                            <div className="flex space-x-2">
-                              <Input
-                                placeholder="https://drive.google.com/drive/folders/..."
-                                className="bg-background/50"
-                                {...field}
-                              />
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                onClick={() =>
-                                  window.open(BASE_DRIVE_URL, "_blank")
-                                }
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </FormControl>
-                          <FormDescription>
-                            Upload all source materials to Google Drive and
-                            share the folder URL.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
                     <FormField
                       control={form.control}
                       name="OpenSourceConfirmed"
@@ -637,123 +865,6 @@ export default function NewTaskPage() {
                     </div>
                   </CardContent>
                 </Card>
-                {/* Google Drive Setup Instructions */}
-                {generatedTaskId && (
-                  <Card className="bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
-                    <CardHeader>
-                      <CardTitle className="flex items-center space-x-2 text-lg">
-                        <FolderOpen className="h-5 w-5 text-blue-600" />
-                        <span>Google Drive Setup</span>
-                      </CardTitle>
-                      <CardDescription>
-                        Create the required folder structure for{" "}
-                        {generatedTaskId}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-3">
-                        <div className="p-3 bg-background/50 rounded-lg border border-border/30">
-                          <p className="text-sm font-medium text-foreground mb-2">
-                            1. Go to Base Folder
-                          </p>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                window.open(BASE_DRIVE_URL, "_blank")
-                              }
-                            >
-                              <ExternalLink className="h-4 w-4 mr-2" />
-                              Open Base Folder
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="p-3 bg-background/50 rounded-lg border border-border/30">
-                          <p className="text-sm font-medium text-foreground mb-2">
-                            2. Create Task Folder
-                          </p>
-                          <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
-                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                                {generatedTaskId}
-                              </code>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => copyToClipboard(generatedTaskId)}
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              Create a new folder with this exact name
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="p-3 bg-background/50 rounded-lg border border-border/30">
-                          <p className="text-sm font-medium text-foreground mb-2">
-                            3. Create Subfolders Inside {generatedTaskId}
-                          </p>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                                request
-                              </code>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => copyToClipboard("request")}
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                                response
-                              </code>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => copyToClipboard("response")}
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                          <div className="flex items-start space-x-2">
-                            <Upload className="h-4 w-4 text-amber-600 mt-0.5" />
-                            <div className="space-y-1">
-                              <p className="text-sm font-medium text-amber-800 dark:text-amber-400">
-                                Upload Guidelines
-                              </p>
-                              <ul className="text-xs text-amber-700 dark:text-amber-500 space-y-1">
-                                <li>
-                                  • Put all artifacts used in{" "}
-                                  <code>request</code> folder
-                                </li>
-                                <li>
-                                  • Put all artifacts generated by model in{" "}
-                                  <code>response</code> folder
-                                </li>
-                                <li>• Share the main task folder URL below</li>
-                              </ul>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
 
                 {/* Current User Info */}
                 {user && (
@@ -791,7 +902,7 @@ export default function NewTaskPage() {
 
               <Button
                 type="submit"
-                disabled={isSubmitting || !generatedTaskId}
+                disabled={isSubmitting}
                 className="min-w-[120px]"
               >
                 {isSubmitting ? (

@@ -1,12 +1,9 @@
 import { router, protectedProcedure } from "../server";
 import { TRPCError } from "@trpc/server";
 import {
-  addServerFields,
   CreateTaskSchema,
   getDetailedValidationError,
-  ServerTaskSchema,
   TaskStatus,
-  toAirtableFormat,
   calculateTaskProgress,
   Task,
   TaskSummary,
@@ -22,8 +19,12 @@ import {
   getCurrentRubricContent,
   addAlignmentToHistory,
   parseRubricContent,
+  ServerTaskInput,
+  toAirtableFormat,
 } from "@/lib/schemas/task";
 import z from "zod";
+import { generateTaskId } from "@/lib/utils/task-utils";
+import { GoogleDriveService } from "@/lib/services/google-drive";
 
 class AirtableFieldManager {
   private baseId: string;
@@ -135,14 +136,17 @@ const fieldManager = new AirtableFieldManager(
   process.env.AIRTABLE_API_KEY!
 );
 
-export const tasksRouter = router({
-  // Original create task mutation (updated to use new status)
+function base64ToBuffer(base64Data: string): Buffer {
+  return Buffer.from(base64Data, "base64");
+}
 
+export const tasksRouter = router({
+  // Original create task mutation
   create: protectedProcedure
     .input(CreateTaskSchema)
     .mutation(async ({ input, ctx }) => {
       try {
-        console.log("Starting task creation with client TaskID:", input.TaskID);
+        console.log("Starting task creation");
 
         const userEmail = ctx.session.user.email as string;
 
@@ -164,63 +168,99 @@ export const tasksRouter = router({
           });
         }
 
-        // Check if TaskID already exists
-        const existingTaskWithId = await ctx.airtable.tasksTable
-          .select({
-            filterByFormula: `{TaskID} = '${input.TaskID}'`,
-            maxRecords: 1,
-          })
-          .all();
+        const taskId = generateTaskId();
+        console.log("Generated TaskID:", taskId);
 
-        if (existingTaskWithId.length > 0) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: `Task ID ${input.TaskID} already exists. Please refresh the page to generate a new ID.`,
-          });
+        const serviceAccountKey = {
+          type: "service_account",
+          project_id: process.env.GOOGLE_PROJECT_ID,
+          private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+          private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+          client_email: process.env.GOOGLE_CLIENT_EMAIL,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          auth_uri: "https://accounts.google.com/o/oauth2/auth",
+          token_uri: "https://oauth2.googleapis.com/token",
+          auth_provider_x509_cert_url:
+            "https://www.googleapis.com/oauth2/v1/certs",
+          client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT_URL,
+          universe_domain: "googleapis.com",
+        };
+
+        const driveService = new GoogleDriveService(serviceAccountKey);
+        const BASE_FOLDER_ID = process.env.GOOGLE_DRIVE_BASE_FOLDER_ID!;
+
+        console.log("Creating google drive folders...");
+        const folderResult = await driveService.createTaskFolder(
+          taskId,
+          BASE_FOLDER_ID
+        );
+
+        console.log("Uploading request files...");
+        for (const file of input.requestFiles) {
+          const fileBuffer = base64ToBuffer(file.data);
+          await driveService.uploadFile(
+            fileBuffer,
+            file.name,
+            file.type,
+            folderResult.requestFolderId
+          );
         }
 
-        console.log("No incomplete tasks found, proceeding with task creation");
-        const serverData = addServerFields(input, userEmail);
+        console.log("Uploading response files...");
+        for (const file of input.responseFiles) {
+          const fileBuffer = base64ToBuffer(file.data);
+          await driveService.uploadFile(
+            fileBuffer,
+            file.name,
+            file.type,
+            folderResult.responseFolderId
+          );
+        }
+
+        await driveService.setFolderPermissions(
+          folderResult.taskFolderId,
+          userEmail
+        );
+
+        console.log("Google Drive setup completed successfully");
+
+        const taskData: ServerTaskInput = {
+          TaskID: taskId,
+          Prompt: input.Prompt,
+          ProfessionalSector: input.ProfessionalSector,
+          TrainerEmail: userEmail,
+          Sources: folderResult.taskFolderUrl,
+          OpenSourceConfirmed: input.OpenSourceConfirmed,
+          LicenseNotes: input.LicenseNotes || "",
+          GPTResponse: input.GPTResponse,
+          GeminiResponse: input.GeminiResponse,
+        };
+
+        const finalAirtableData = toAirtableFormat(taskData);
 
         try {
-          const validatedServerData = ServerTaskSchema.parse(serverData);
-          const taskID = input.TaskID; // Use client-provided TaskID
-          const airtableData = toAirtableFormat(validatedServerData, taskID);
+          console.log("Creating record in Airtable:", taskId);
 
-          await fieldManager.ensureRubricFieldsExist(2);
+          const createdTask = await ctx.airtable.tasksTable.create(
+            finalAirtableData
+          );
 
-          console.log("Creating record in Airtable:", taskID);
-
-          const records = await ctx.airtable.tasksTable.create([
-            {
-              fields: airtableData,
-            },
-          ]);
-
-          const createdRecord = records[0];
-
-          if (!createdRecord) {
+          if (!createdTask) {
             throw new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
               message: "Failed to create task record.",
             });
           }
 
-          console.log("Task created successfully:", records);
+          console.log("Task created successfully:", createdTask);
 
           return {
+            id: createdTask.id,
+            taskId: taskId,
+            folderUrl: folderResult.taskFolderUrl,
+            requestFileCount: input.requestFiles.length,
+            responseFileCount: input.responseFiles.length,
             success: true,
-            taskId: taskID,
-            recordId: createdRecord.id,
-            message:
-              "Task created successfully! You can now create the V1 rubric.",
-            task: {
-              id: createdRecord.id,
-              TaskID: taskID,
-              Status: "Task_Creation" as TaskStatus,
-              TrainerEmail: userEmail,
-              ...airtableData,
-            },
           };
         } catch (validationError) {
           if (validationError instanceof z.ZodError) {
