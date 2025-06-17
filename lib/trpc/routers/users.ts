@@ -108,7 +108,7 @@ export const usersRouter = router({
       const accessToken = currentUserInfo.tokenData.access_token;
 
       const usersResponse = await fetch(
-        `https://${process.env.AUTH0_DOMAIN}/api/v2/users?include_totals=true&search_engine=v3&q=email:*@invisible.email`,
+        `https://${process.env.AUTH0_DOMAIN}/api/v2/users?include_totals=true&search_engine=v3&q=app_metadata.hasLoggedIntoSectorEvals:true`,
         {
           method: "GET",
           headers: {
