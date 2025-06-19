@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -47,9 +47,6 @@ import {
   Eye,
   FolderOpen,
   Upload,
-  UploadCloud,
-  XIcon,
-  FileTextIcon,
   ExternalLinkIcon,
   CheckCircleIcon,
 } from "lucide-react";
@@ -63,172 +60,19 @@ import {
 import { professionalSectors } from "@/constants/ProfessionalSectors";
 import { api } from "@/lib/trpc/client";
 import { useUser } from "@auth0/nextjs-auth0";
-import { useDropzone } from "react-dropzone";
-
-// const BASE_DRIVE_URL =
-//   "https://drive.google.com/drive/u/5/folders/1wSO7QbJnuCiqXMntin1OooihJqkY0fae";
-
-interface FileData {
-  name: string;
-  size: number;
-  type: string;
-  data: string; // base64 encoded
-}
-
-interface FileUploadProps {
-  files: FileData[];
-  onFilesChange: (files: FileData[]) => void;
-  maxFiles?: number;
-  label: string;
-  description: string;
-}
-
-// Helper to convert File to base64
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Remove data:type;base64, prefix
-      const base64 = result.split(",")[1];
-      resolve(base64);
-    };
-    reader.onerror = (error) => reject(error);
-  });
-};
-
-function FileUpload({
-  files,
-  onFilesChange,
-  maxFiles = 10,
-  label,
-  description,
-}: FileUploadProps) {
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  const onDrop = useCallback(
-    async (acceptedFiles: File[]) => {
-      if (files.length + acceptedFiles.length > maxFiles) {
-        toast.error(`Maximum ${maxFiles} files allowed`);
-        return;
-      }
-
-      setIsProcessing(true);
-      try {
-        const newFileData: FileData[] = [];
-
-        for (const file of acceptedFiles) {
-          const base64Data = await fileToBase64(file);
-          newFileData.push({
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            data: base64Data,
-          });
-        }
-
-        onFilesChange([...files, ...newFileData]);
-      } catch (error) {
-        toast.error("Error processing files");
-        console.error(error);
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [files, onFilesChange, maxFiles]
-  );
-
-  const removeFile = (index: number) => {
-    const newFiles = files.filter((_, i) => i !== index);
-    onFilesChange(newFiles);
-  };
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      "application/pdf": [".pdf"],
-      "text/plain": [".txt"],
-      "text/csv": [".csv"],
-      "application/vnd.ms-excel": [".xls"],
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
-        ".xlsx",
-      ],
-      "application/json": [".json"],
-      "image/png": [".png"],
-      "image/jpeg": [".jpg", ".jpeg"],
-      "application/zip": [".zip"],
-    },
-    maxSize: 10 * 1024 * 1024, // 10MB
-    multiple: true,
-    disabled: isProcessing,
-  });
-
-  return (
-    <div className="space-y-4">
-      <div
-        {...getRootProps()}
-        className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-          isDragActive
-            ? "border-primary bg-primary/5"
-            : isProcessing
-            ? "border-muted-foreground/25 bg-muted/50 cursor-not-allowed"
-            : "border-muted-foreground/25 hover:border-primary/50"
-        }`}
-      >
-        <input {...getInputProps()} />
-        {isProcessing ? (
-          <>
-            <Loader2 className="mx-auto h-8 w-8 text-muted-foreground mb-2 animate-spin" />
-            <p className="text-sm font-medium">Processing files...</p>
-          </>
-        ) : (
-          <>
-            <UploadCloud className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
-            <p className="text-sm font-medium">{label}</p>
-            <p className="text-xs text-muted-foreground mt-1">{description}</p>
-            <p className="text-xs text-muted-foreground mt-2">
-              Drag files here or click to browse (Max: {maxFiles} files, 10MB
-              each)
-            </p>
-          </>
-        )}
-      </div>
-
-      {files.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Selected Files ({files.length})</p>
-          {files.map((file, index) => (
-            <div
-              key={index}
-              className="flex items-center justify-between bg-muted/50 p-2 rounded"
-            >
-              <div className="flex items-center space-x-2">
-                <FileTextIcon className="h-4 w-4" />
-                <span className="text-sm truncate">{file.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  ({(file.size / 1024 / 1024).toFixed(4)} MB)
-                </span>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => removeFile(index)}
-              >
-                <XIcon className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+import { DirectFileUpload } from "@/components/DirectFileUpload"; // Import the new component
 
 export default function NewTaskPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [folderInfo, setFolderInfo] = useState<{
+    taskId: string;
+    taskFolderId: string;
+    requestFolderId: string;
+    responseGeminiFolderId: string;
+    responseGptFolderId: string;
+    taskFolderUrl: string;
+  } | null>(null);
   const [createdTaskInfo, setCreatedTaskInfo] = useState<{
     taskId: string;
     folderUrl: string;
@@ -243,6 +87,7 @@ export default function NewTaskPage() {
   const form = useForm<CreateTaskInput>({
     resolver: zodResolver(CreateTaskSchema),
     defaultValues: {
+      taskId: "",
       Prompt: "",
       ProfessionalSector: undefined,
       OpenSourceConfirmed: false,
@@ -270,19 +115,34 @@ export default function NewTaskPage() {
   const hasIncompleteTasks = incompleteTasks.length > 0;
   const currentIncompleteTask = incompleteTasks[0];
 
+  // Mutation to create folder structure
+  const createFoldersMutation = api.tasks.createFolders.useMutation({
+    onSuccess: (result) => {
+      setFolderInfo(result);
+      toast.success("Folder structure created!", {
+        description: "You can now upload files to Google Drive.",
+      });
+    },
+    onError: (error) => {
+      toast.error("Failed to create folders", {
+        description: error.message,
+      });
+      setSubmitError(error.message);
+    },
+  });
+
+  // Mutation to create task (after files are uploaded)
   const createTaskMutation = api.tasks.create.useMutation({
     onSuccess: (result) => {
       toast.success("Task created successfully!", {
-        description: `Task ${result.taskId} created with ${result.requestFileCount} request files
-         , Gemini: ${result.responseGeminiFileCount} response files
-         and GPT: ${result.responseGptFileCount} response files.`,
+        description: `Task ${result.taskId} created successfully.`,
       });
       setCreatedTaskInfo({
         taskId: result.taskId,
         folderUrl: result.folderUrl,
-        requestFileCount: result.requestFileCount,
-        responseGeminiFileCount: result.responseGeminiFileCount,
-        responseGptFileCount: result.responseGptFileCount,
+        requestFileCount: form.getValues("requestFiles").length,
+        responseGeminiFileCount: form.getValues("responseGeminiFiles").length,
+        responseGptFileCount: form.getValues("responseGptFiles").length,
       });
       setIsSubmitting(false);
       setTimeout(() => {
@@ -292,9 +152,7 @@ export default function NewTaskPage() {
     onError: (error) => {
       setIsSubmitting(false);
 
-      // Handle the specific CONFLICT error for existing incomplete tasks
       if (error.data?.code === "CONFLICT") {
-        // Parse structured error message: "INCOMPLETE_TASK_EXISTS:TASK-123:Status:Label"
         if (error.message.startsWith("INCOMPLETE_TASK_EXISTS:")) {
           const parts = error.message.split(":");
           if (parts.length >= 4) {
@@ -314,7 +172,6 @@ export default function NewTaskPage() {
               },
             });
           } else {
-            // Fallback if message format is unexpected
             setSubmitError(error.message);
             toast.error("Cannot create new task", {
               description:
@@ -322,7 +179,6 @@ export default function NewTaskPage() {
             });
           }
         } else {
-          // Generic conflict error
           setSubmitError(error.message);
           toast.error("Cannot create new task", {
             description: error.message,
@@ -339,7 +195,8 @@ export default function NewTaskPage() {
     },
   });
 
-  const onSubmit = async (data: CreateTaskInput) => {
+  // Step 1: Create folder structure
+  const initializeTask = async () => {
     if (hasIncompleteTasks) {
       toast.error("Cannot create new task", {
         description:
@@ -348,11 +205,48 @@ export default function NewTaskPage() {
       return;
     }
 
+    setSubmitError(null);
+    await createFoldersMutation.mutateAsync({});
+  };
+
+  // Step 2: Submit task after files are uploaded
+  const onSubmit = async (data: CreateTaskInput) => {
+    console.log(data);
+    if (!folderInfo) {
+      toast.error("Please initialize the task first by creating folders.");
+      return;
+    }
+
+    // Check that all files have been uploaded
+    const allFiles = [
+      ...data.requestFiles,
+      ...data.responseGeminiFiles,
+      ...data.responseGptFiles,
+    ];
+    const missingUploads = allFiles.filter((file) => !file.driveFileId);
+
+    if (missingUploads.length > 0) {
+      toast.error("Please upload all files before submitting", {
+        description: `Missing uploads: ${missingUploads
+          .map((f) => f.name)
+          .join(", ")}`,
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      await createTaskMutation.mutateAsync(data);
+      // Add folder info to the data
+      console.log("Task id recieved from folders is ", folderInfo?.taskId);
+      const taskData: CreateTaskInput = {
+        ...data,
+        taskId: folderInfo.taskId as string,
+        taskFolderId: folderInfo.taskFolderId,
+      };
+
+      await createTaskMutation.mutateAsync(taskData);
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       // Error handling is done in the mutation
@@ -363,75 +257,124 @@ export default function NewTaskPage() {
     (sector) => sector.value === form.watch("ProfessionalSector")
   );
 
-  // const copyToClipboard = (text: string) => {
-  //   navigator.clipboard.writeText(text);
-  //   toast.success("Copied to clipboard!");
-  // };
+  // Check if all files are uploaded
+  const allFiles = [
+    ...form.watch("requestFiles"),
+    ...form.watch("responseGeminiFiles"),
+    ...form.watch("responseGptFiles"),
+  ];
+  const allFilesUploaded =
+    allFiles.length > 0 && allFiles.every((file) => file.driveFileId);
+  const hasRequiredFiles = form.watch("requestFiles").length > 0;
 
   // Show success state
   if (createdTaskInfo) {
     return (
-      <div className="container mx-auto py-8 px-4 max-w-4xl">
-        <Card className="bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2 text-green-800 dark:text-green-400">
-              <CheckCircleIcon className="h-6 w-6" />
-              <span>Task Created Successfully!</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Task ID:</p>
-                <code className="bg-muted px-2 py-1 rounded text-sm block">
-                  {createdTaskInfo.taskId}
-                </code>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Files Uploaded:</p>
-                <div className="flex space-x-4 text-sm">
-                  <span>Request: {createdTaskInfo.requestFileCount}</span>
-                  <span>
-                    Response Gemini: {createdTaskInfo.responseGeminiFileCount}
-                  </span>
-                  <span>
-                    Response GPT: {createdTaskInfo.responseGptFileCount}
-                  </span>
-                </div>
-              </div>
+      <Card className="bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2 text-green-800 dark:text-green-200">
+            <CheckCircleIcon className="h-6 w-6" />
+            <span>Task Created Successfully!</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                Task ID:
+              </p>
+              <code className="bg-green-100 dark:bg-green-900/50 px-2 py-1 rounded text-sm block text-green-900 dark:text-green-100">
+                {createdTaskInfo.taskId}
+              </code>
             </div>
 
             <div className="space-y-2">
-              <p className="text-sm font-medium">Google Drive Folder:</p>
-              <div className="flex items-center space-x-2">
-                <code className="bg-muted px-2 py-1 rounded text-xs flex-1 truncate">
-                  {createdTaskInfo.folderUrl}
-                </code>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    window.open(createdTaskInfo.folderUrl, "_blank")
-                  }
-                >
-                  <ExternalLinkIcon className="h-4 w-4" />
-                </Button>
+              <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                Files Uploaded:
+              </p>
+              <div className="space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-green-700 dark:text-green-300">
+                    Request Files:
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200"
+                  >
+                    {createdTaskInfo.requestFileCount}
+                  </Badge>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-green-700 dark:text-green-300">
+                    Gemini Files:
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200"
+                  >
+                    {createdTaskInfo.responseGeminiFileCount}
+                  </Badge>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-green-700 dark:text-green-300">
+                    GPT Files:
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200"
+                  >
+                    {createdTaskInfo.responseGptFileCount}
+                  </Badge>
+                </div>
               </div>
             </div>
+          </div>
 
-            <Alert>
-              <FolderOpen className="h-4 w-4" />
-              <AlertTitle>Task Setup Complete</AlertTitle>
-              <AlertDescription>
-                Your task has been created with automatic folder structure and
-                file uploads. You&apos;ll be redirected to the task page
-                shortly.
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
-      </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-green-800 dark:text-green-200">
+              Google Drive Folder:
+            </p>
+            <div className="flex items-center space-x-2">
+              <code className="bg-green-100 dark:bg-green-900/50 px-2 py-1 rounded text-xs flex-1 truncate text-green-900 dark:text-green-100">
+                {createdTaskInfo.folderUrl}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/50"
+                onClick={() => window.open(createdTaskInfo.folderUrl, "_blank")}
+              >
+                <ExternalLinkIcon className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <Alert className="bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
+            <FolderOpen className="h-4 w-4 text-green-600 dark:text-green-400" />
+            <AlertTitle className="text-green-800 dark:text-green-200">
+              Task Setup Complete
+            </AlertTitle>
+            <AlertDescription className="text-green-700 dark:text-green-300">
+              Your task has been created with organized folder structure:
+              <ul className="mt-2 space-y-1 text-xs">
+                <li>
+                  📁 {createdTaskInfo.taskId}/request →{" "}
+                  {createdTaskInfo.requestFileCount} files
+                </li>
+                <li>
+                  📁 {createdTaskInfo.taskId}/response_gemini →{" "}
+                  {createdTaskInfo.responseGeminiFileCount} files
+                </li>
+                <li>
+                  📁 {createdTaskInfo.taskId}/response_gpt →{" "}
+                  {createdTaskInfo.responseGptFileCount} files
+                </li>
+              </ul>
+              Redirecting to task page in 5 seconds...
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -492,7 +435,7 @@ export default function NewTaskPage() {
           </p>
         </div>
 
-        {/*  Incomplete Task Warning */}
+        {/* Incomplete Task Warning */}
         {hasIncompleteTasks && currentIncompleteTask && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
@@ -536,422 +479,642 @@ export default function NewTaskPage() {
             <AlertDescription>{submitError}</AlertDescription>
           </Alert>
         )}
+
+        {/* Step indicator */}
+        {!hasIncompleteTasks && (
+          <div className="flex items-center space-x-4 p-4 bg-muted/50 rounded-lg">
+            <div
+              className={`flex items-center space-x-2 ${
+                !folderInfo ? "text-primary" : "text-green-600"
+              }`}
+            >
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                  !folderInfo
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-green-600 text-white"
+                }`}
+              >
+                {!folderInfo ? "1" : "✓"}
+              </div>
+              <span className="text-sm font-medium">Initialize Task</span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <div
+              className={`flex items-center space-x-2 ${
+                folderInfo && !allFilesUploaded
+                  ? "text-primary"
+                  : folderInfo && allFilesUploaded
+                  ? "text-green-600"
+                  : "text-muted-foreground"
+              }`}
+            >
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                  folderInfo && !allFilesUploaded
+                    ? "bg-primary text-primary-foreground"
+                    : folderInfo && allFilesUploaded
+                    ? "border-green-500 text-white"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {folderInfo && allFilesUploaded ? "✓" : "2"}
+              </div>
+              <span className="text-sm font-medium">Upload Files</span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <div
+              className={`flex items-center space-x-2 ${
+                folderInfo && allFilesUploaded
+                  ? "text-primary"
+                  : "text-muted-foreground"
+              }`}
+            >
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                  folderInfo && allFilesUploaded
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                3
+              </div>
+              <span className="text-sm font-medium">Create Task</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Only show form if no incomplete tasks exist */}
       {!hasIncompleteTasks ? (
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="grid gap-6 lg:grid-cols-3">
-              {/* Main Form */}
-              <div className="lg:col-span-2 space-y-6">
-                {/* Task Description */}
-                <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <FileText className="h-5 w-5" />
-                      <span>Prompt</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Provide a detailed description of the task.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <FormField
-                      control={form.control}
-                      name="Prompt"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Prompt *</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Describe the task that needs to be evaluated. Be specific about requirements, expected outputs..."
-                              className="min-h-[120px] bg-background/50"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Provide a clear, detailed description of what you
-                            want the AI to accomplish.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
+        <>
+          {/* Step 1: Initialize Task */}
+          {!folderInfo && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Step 1: Initialize Task</CardTitle>
+                <CardDescription>
+                  First, we&apos;ll create the folder structure in Google Drive
+                  for your task.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={initializeTask}
+                  disabled={createFoldersMutation.isPending}
+                  size="lg"
+                  className="w-full"
+                >
+                  {createFoldersMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating Folders...
+                    </>
+                  ) : (
+                    <>
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      Initialize Task & Create Folders
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
-                {/* Professional Sector */}
-                <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-                  <CardHeader>
-                    <CardTitle>Professional Sector</CardTitle>
-                    <CardDescription>
-                      Select the sector that best matches your task.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <FormField
-                      control={form.control}
-                      name="ProfessionalSector"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Sector *</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger className="bg-background/50">
-                                <SelectValue placeholder="Select a professional sector" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {professionalSectors.map((sector) => (
-                                <SelectItem
-                                  key={sector.value}
-                                  value={sector.value}
+          {/* Step 2 & 3: Main Form (only show after folders are created) */}
+          {folderInfo && (
+            <>
+              <Alert className=" border-green-200">
+                <CheckCircleIcon className="h-4 w-4 text-green-600" />
+                <AlertTitle className="text-green-800">
+                  Folders Created Successfully!
+                </AlertTitle>
+                <AlertDescription className="">
+                  Task ID: {folderInfo.taskId}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="p-0 h-auto "
+                    onClick={() =>
+                      window.open(folderInfo.taskFolderUrl, "_blank")
+                    }
+                  >
+                    View in Google Drive{" "}
+                    <ExternalLinkIcon className="ml-1 h-3 w-3" />
+                  </Button>
+                </AlertDescription>
+              </Alert>
+
+              <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-6"
+                >
+                  <div className="grid gap-6 lg:grid-cols-3">
+                    {/* Main Form */}
+                    <div className="lg:col-span-2 space-y-6">
+                      {/* Task Description */}
+                      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+                        <CardHeader>
+                          <CardTitle className="flex items-center space-x-2">
+                            <FileText className="h-5 w-5" />
+                            <span>Prompt</span>
+                          </CardTitle>
+                          <CardDescription>
+                            Provide a detailed description of the task.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <FormField
+                            control={form.control}
+                            name="Prompt"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Prompt *</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Describe the task that needs to be evaluated. Be specific about requirements, expected outputs..."
+                                    className="min-h-[120px] bg-background/50"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Provide a clear, detailed description of what
+                                  you want the AI to accomplish.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </CardContent>
+                      </Card>
+
+                      {/* Professional Sector */}
+                      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+                        <CardHeader>
+                          <CardTitle>Professional Sector</CardTitle>
+                          <CardDescription>
+                            Select the sector that best matches your task.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <FormField
+                            control={form.control}
+                            name="ProfessionalSector"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Sector *</FormLabel>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  defaultValue={field.value}
                                 >
-                                  <div className="flex items-center space-x-2">
-                                    <span>{sector.icon}</span>
-                                    <span>{sector.label}</span>
+                                  <FormControl>
+                                    <SelectTrigger className="bg-background/50">
+                                      <SelectValue placeholder="Select a professional sector" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {professionalSectors.map((sector) => (
+                                      <SelectItem
+                                        key={sector.value}
+                                        value={sector.value}
+                                      >
+                                        <div className="flex items-center space-x-2">
+                                          <span>{sector.icon}</span>
+                                          <span>{sector.label}</span>
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {selectedSector && (
+                                  <div className="mt-2 p-3 bg-muted/30 rounded-lg border border-border/30">
+                                    <p className="text-sm text-muted-foreground">
+                                      <strong>{selectedSector.label}:</strong>{" "}
+                                      {selectedSector.description}
+                                    </p>
                                   </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {selectedSector && (
-                            <div className="mt-2 p-3 bg-muted/30 rounded-lg border border-border/30">
-                              <p className="text-sm text-muted-foreground">
-                                <strong>{selectedSector.label}:</strong>{" "}
-                                {selectedSector.description}
-                              </p>
-                            </div>
-                          )}
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
+                                )}
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </CardContent>
+                      </Card>
 
-                {/* File Uploads */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <Upload className="h-5 w-5" />
-                      <span>File Uploads</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Upload source materials and model responses that will be
-                      automatically organized in Google Drive.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <FormField
-                      control={form.control}
-                      name="requestFiles"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Request Files *</FormLabel>
-                          <FormControl>
-                            <FileUpload
-                              files={field.value}
-                              onFilesChange={field.onChange}
-                              label="Upload Request Files"
-                              description="Upload all source materials, documents, and inputs for the task"
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            These files will be stored in the
-                            &lsquo;request&rsquo; folder and represent the task
-                            inputs.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      {/* File Uploads - Using Direct Upload */}
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center space-x-2">
+                            <Upload className="h-5 w-5" />
+                            <span>Step 2: File Uploads</span>
+                          </CardTitle>
+                          <CardDescription>
+                            Upload files directly to Google Drive. Files are
+                            uploaded immediately when you drop them.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <FormField
+                            control={form.control}
+                            name="requestFiles"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Request Files *</FormLabel>
+                                <FormControl>
+                                  <DirectFileUpload
+                                    files={field.value}
+                                    onFilesChange={field.onChange}
+                                    folderId={folderInfo.requestFolderId}
+                                    label="Upload Request Files"
+                                    description="Upload all source materials, documents, and inputs for the task"
+                                    immediate={true}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  These files will be stored in the
+                                  &lsquo;request&rsquo; folder and represent the
+                                  task inputs.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                    <FormField
-                      control={form.control}
-                      name="responseGeminiFiles"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Gemini Response Files *</FormLabel>
-                          <FormControl>
-                            <FileUpload
-                              files={field.value}
-                              onFilesChange={field.onChange}
-                              label="Upload Gemini Response Files"
-                              description="Upload files generated by or related to Gemini model responses"
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            These files will be stored in the
-                            &lsquo;response_gemini&rsquo; folder.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                          <FormField
+                            control={form.control}
+                            name="responseGeminiFiles"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Gemini Response Files *</FormLabel>
+                                <FormControl>
+                                  <DirectFileUpload
+                                    files={field.value}
+                                    onFilesChange={field.onChange}
+                                    folderId={folderInfo.responseGeminiFolderId}
+                                    label="Upload Gemini Response Files"
+                                    description="Upload files generated by or related to Gemini model responses"
+                                    immediate={true}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  These files will be stored in the
+                                  &lsquo;response_gemini&rsquo; folder.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                    <FormField
-                      control={form.control}
-                      name="responseGptFiles"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>GPT Response Files *</FormLabel>
-                          <FormControl>
-                            <FileUpload
-                              files={field.value}
-                              onFilesChange={field.onChange}
-                              label="Upload GPT Response Files"
-                              description="Upload files generated by or related to GPT model responses"
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            These files will be stored in the
-                            &lsquo;response_gpt&rsquo; folder.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
+                          <FormField
+                            control={form.control}
+                            name="responseGptFiles"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>GPT Response Files *</FormLabel>
+                                <FormControl>
+                                  <DirectFileUpload
+                                    files={field.value}
+                                    onFilesChange={field.onChange}
+                                    folderId={folderInfo.responseGptFolderId}
+                                    label="Upload GPT Response Files"
+                                    description="Upload files generated by or related to GPT model responses"
+                                    immediate={true}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  These files will be stored in the
+                                  &lsquo;response_gpt&rsquo; folder.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </CardContent>
+                      </Card>
 
-                {/* AI Model Responses */}
-                <Card className="bg-gradient-to-br from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20 border-purple-200 dark:border-purple-800">
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <Bot className="h-5 w-5 text-purple-600" />
-                      <span>AI Model Responses</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Provide the complete responses from both GPT and Gemini
-                      models.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="GPTResponse"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>GPT Response *</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Paste the complete response from GPT model here..."
-                              className="min-h-[120px] bg-background/50 font-mono text-sm"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Include the full response exactly as provided by
-                            GPT.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      {/* AI Model Responses */}
+                      <Card className="bg-gradient-to-br from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20 border-purple-200 dark:border-purple-800">
+                        <CardHeader>
+                          <CardTitle className="flex items-center space-x-2">
+                            <Bot className="h-5 w-5 text-purple-600" />
+                            <span>AI Model Responses</span>
+                          </CardTitle>
+                          <CardDescription>
+                            Provide the complete responses from both GPT and
+                            Gemini models.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name="GPTResponse"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>GPT Response *</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Paste the complete response from GPT model here..."
+                                    className="min-h-[120px] bg-background/50 font-mono text-sm"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Include the full response exactly as provided
+                                  by GPT.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                    <FormField
-                      control={form.control}
-                      name="GeminiResponse"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Gemini Response *</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Paste the complete response from Gemini model here..."
-                              className="min-h-[120px] bg-background/50 font-mono text-sm"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Include the full response exactly as provided by
-                            Gemini.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
+                          <FormField
+                            control={form.control}
+                            name="GeminiResponse"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Gemini Response *</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Paste the complete response from Gemini model here..."
+                                    className="min-h-[120px] bg-background/50 font-mono text-sm"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Include the full response exactly as provided
+                                  by Gemini.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </CardContent>
+                      </Card>
 
-                {/* Sources and Licensing */}
-                <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <Globe className="h-5 w-5" />
-                      <span>Licensing</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Upload source materials to Google Drive and confirm
-                      licensing.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="OpenSourceConfirmed"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 bg-green-50/50 dark:bg-green-950/20">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel>Open Source Confirmation *</FormLabel>
-                            <FormDescription>
-                              I confirm that all sources used are properly
-                              licensed for commercial use.
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
+                      {/* Sources and Licensing */}
+                      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+                        <CardHeader>
+                          <CardTitle className="flex items-center space-x-2">
+                            <Globe className="h-5 w-5" />
+                            <span>Licensing</span>
+                          </CardTitle>
+                          <CardDescription>
+                            Confirm licensing for your uploaded materials.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name="OpenSourceConfirmed"
+                            render={({ field }) => (
+                              <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 bg-green-50/50 dark:bg-green-950/20">
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                                <div className="space-y-1 leading-none">
+                                  <FormLabel>
+                                    Open Source Confirmation *
+                                  </FormLabel>
+                                  <FormDescription>
+                                    I confirm that all sources used are properly
+                                    licensed for commercial use.
+                                  </FormDescription>
+                                </div>
+                              </FormItem>
+                            )}
+                          />
 
-                    <FormField
-                      control={form.control}
-                      name="LicenseNotes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>License Notes (Optional)</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Add any additional notes about licensing or restrictions..."
-                              className="bg-background/50"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Document any specific licensing requirements.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
-              </div>
+                          <FormField
+                            control={form.control}
+                            name="LicenseNotes"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>License Notes (Optional)</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Add any additional notes about licensing or restrictions..."
+                                    className="bg-background/50"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Document any specific licensing requirements.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </CardContent>
+                      </Card>
+                    </div>
 
-              {/* Sidebar */}
-              <div className="space-y-6">
-                {/* Evaluation Process */}
-                <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2 text-lg">
-                      <Shield className="h-5 w-5" />
-                      <span>Evaluation Process</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Your task will progress through these stages
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {workflowSteps.map((step, index) => {
-                        const isActive = index === 0;
-
-                        return (
-                          <div
-                            key={step.status}
-                            className="flex items-start space-x-3"
-                          >
-                            <div
-                              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                                isActive
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
+                    {/* Sidebar */}
+                    <div className="space-y-6">
+                      {/* Upload Status */}
+                      <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+                        <CardHeader>
+                          <CardTitle className="flex items-center space-x-2 text-lg">
+                            <Upload className="h-5 w-5" />
+                            <span>Upload Status</span>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Request Files</span>
+                            <Badge
+                              variant={
+                                form.watch("requestFiles").length > 0
+                                  ? "default"
+                                  : "secondary"
+                              }
                             >
-                              {index + 1}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p
-                                className={`text-sm font-medium ${
-                                  isActive
-                                    ? "text-foreground"
-                                    : "text-muted-foreground"
-                                }`}
-                              >
-                                {step.label}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {step.description}
-                              </p>
-                              {isActive && (
-                                <Badge
-                                  variant="default"
-                                  className="text-xs mt-2"
-                                >
-                                  Current Step
-                                </Badge>
+                              {form.watch("requestFiles").length} files
+                            </Badge>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Gemini Files</span>
+                            <Badge
+                              variant={
+                                form.watch("responseGeminiFiles").length > 0
+                                  ? "default"
+                                  : "secondary"
+                              }
+                            >
+                              {form.watch("responseGeminiFiles").length} files
+                            </Badge>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">GPT Files</span>
+                            <Badge
+                              variant={
+                                form.watch("responseGptFiles").length > 0
+                                  ? "default"
+                                  : "secondary"
+                              }
+                            >
+                              {form.watch("responseGptFiles").length} files
+                            </Badge>
+                          </div>
+                          <div className="pt-2 border-t">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">
+                                All Uploaded
+                              </span>
+                              {allFilesUploaded && hasRequiredFiles ? (
+                                <CheckCircleIcon className="h-5 w-5 text-green-600" />
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  Pending
+                                </span>
                               )}
                             </div>
                           </div>
-                        );
-                      })}
+                        </CardContent>
+                      </Card>
+
+                      {/* Evaluation Process */}
+                      <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+                        <CardHeader>
+                          <CardTitle className="flex items-center space-x-2 text-lg">
+                            <Shield className="h-5 w-5" />
+                            <span>Evaluation Process</span>
+                          </CardTitle>
+                          <CardDescription>
+                            Your task will progress through these stages
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {workflowSteps.map((step, index) => {
+                              const isActive = index === 0;
+                              return (
+                                <div
+                                  key={step.status}
+                                  className="flex items-start space-x-3"
+                                >
+                                  <div
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                                      isActive
+                                        ? "bg-primary text-primary-foreground"
+                                        : "bg-muted text-muted-foreground"
+                                    }`}
+                                  >
+                                    {index + 1}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p
+                                      className={`text-sm font-medium ${
+                                        isActive
+                                          ? "text-foreground"
+                                          : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      {step.label}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      {step.description}
+                                    </p>
+                                    {isActive && (
+                                      <Badge
+                                        variant="default"
+                                        className="text-xs mt-2"
+                                      >
+                                        Current Step
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Current User Info */}
+                      {user && (
+                        <Card className="bg-muted/30 border-border/30">
+                          <CardHeader>
+                            <CardTitle className="text-sm">
+                              Trainer Information
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            <div className="text-xs">
+                              <span className="text-muted-foreground">
+                                Email:{" "}
+                              </span>
+                              <span className="font-mono">{user.email}</span>
+                            </div>
+                            <div className="text-xs">
+                              <span className="text-muted-foreground">
+                                Name:{" "}
+                              </span>
+                              <span>{user.name}</span>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
-
-                {/* Current User Info */}
-                {user && (
-                  <Card className="bg-muted/30 border-border/30">
-                    <CardHeader>
-                      <CardTitle className="text-sm">
-                        Trainer Information
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="text-xs">
-                        <span className="text-muted-foreground">Email: </span>
-                        <span className="font-mono">{user.email}</span>
-                      </div>
-                      <div className="text-xs">
-                        <span className="text-muted-foreground">Name: </span>
-                        <span>{user.name}</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </div>
-
-            {/* Submit Button */}
-            <div className="flex items-center justify-between pt-6 border-t border-border/50">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.back()}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="min-w-[120px]"
-              >
-                {isSubmitting ? (
-                  <div className="flex items-center space-x-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Creating...</span>
                   </div>
-                ) : (
-                  <div className="flex items-center space-x-2">
-                    <Plus className="w-4 h-4" />
-                    <span>Create Task</span>
+
+                  {/* Submit Button */}
+                  <div className="flex items-center justify-between pt-6 border-t border-border/50">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => router.back()}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </Button>
+
+                    <Button
+                      type="submit"
+                      disabled={
+                        isSubmitting || !allFilesUploaded || !hasRequiredFiles
+                      }
+                      className="min-w-[120px]"
+                    >
+                      {isSubmitting ? (
+                        <div className="flex items-center space-x-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Creating...</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-2">
+                          <Plus className="w-4 h-4" />
+                          <span>Create Task</span>
+                        </div>
+                      )}
+                    </Button>
+                    {/* <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        console.log("FORCE DEBUG:", {
+                          formData: form.getValues(),
+                          folderInfo,
+                          allFiles,
+                          validation: form.formState.isValid,
+                        });
+
+                        // Try manual submission
+                        const data = form.getValues();
+                        console.log("Manual submit attempt:", data);
+                      }}
+                    >
+                      🔍 Debug Form
+                    </Button> */}
                   </div>
-                )}
-              </Button>
-            </div>
-          </form>
-        </Form>
+                </form>
+              </Form>
+            </>
+          )}
+        </>
       ) : (
         // Alternative content when incomplete tasks exist
         <Card className="bg-gradient-to-br from-muted/30 to-muted/10 border-border/50">
@@ -966,8 +1129,9 @@ export default function NewTaskPage() {
                 </h3>
                 <p className="text-muted-foreground max-w-md mx-auto">
                   You can only work on one task at a time. Please complete your
-                  current task &ldquo;{currentIncompleteTask?.TaskID}&rdquo;
-                  before creating a new one.
+                  current task &ldquo;
+                  {currentIncompleteTask?.TaskID}&rdquo; before creating a new
+                  one.
                 </p>
               </div>
               <div className="flex justify-center space-x-3">
@@ -987,7 +1151,7 @@ export default function NewTaskPage() {
                   size="lg"
                   onClick={() => router.push("/dashboard/tasks/submitted")}
                 >
-                  <FileText className="w-5  mr-2" />
+                  <FileText className="w-5 h-5 mr-2" />
                   View All Tasks
                 </Button>
               </div>

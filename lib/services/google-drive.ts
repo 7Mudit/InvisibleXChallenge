@@ -118,21 +118,12 @@ export class GoogleDriveService {
     userEmail?: string
   ): Promise<void> {
     try {
-      // Make folder viewable by anyone with the link
-      await this.drive.permissions.create({
-        fileId: folderId,
-        requestBody: {
-          role: "reader",
-          type: "anyone",
-        },
-      });
-
       // Give user edit access
       if (userEmail) {
         await this.drive.permissions.create({
           fileId: folderId,
           requestBody: {
-            role: "writer",
+            role: "reader",
             type: "user",
             emailAddress: userEmail,
           },
@@ -140,7 +131,9 @@ export class GoogleDriveService {
       }
     } catch (error) {
       console.error("Error setting folder permissions:", error);
-      throw new Error(`Failed to set folder permissions for folderId: ${folderId}`);
+      throw new Error(
+        `Failed to set folder permissions for folderId: ${folderId}`
+      );
     }
   }
 }
