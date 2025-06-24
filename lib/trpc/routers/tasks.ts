@@ -21,10 +21,12 @@ import {
   parseRubricContent,
   ServerTaskInput,
   toAirtableFormat,
+  FileReferenceSchema,
 } from "@/lib/schemas/task";
 import z from "zod";
 import { generateTaskId } from "@/lib/utils/task-utils";
 import { GoogleDriveService } from "@/lib/services/google-drive";
+import { google } from "googleapis";
 
 class AirtableFieldManager {
   private baseId: string;
@@ -136,11 +138,83 @@ const fieldManager = new AirtableFieldManager(
   process.env.AIRTABLE_API_KEY!
 );
 
-function base64ToBuffer(base64Data: string): Buffer {
-  return Buffer.from(base64Data, "base64");
-}
+// function base64ToBuffer(base64Data: string): Buffer {
+//   return Buffer.from(base64Data, "base64");
+// }
 
 export const tasksRouter = router({
+  createFolders: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.string().optional(),
+      })
+    )
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const taskId = generateTaskId();
+        console.log("Task id generated during folder creation ", taskId);
+        const userEmail = ctx.session.user.email as string;
+
+        // Check for existing incomplete tasks
+        const existingTasks = await ctx.airtable.tasksTable
+          .select({
+            filterByFormula: `AND({TrainerEmail} = '${userEmail}', {Status} != 'Completed')`,
+            maxRecords: 1,
+          })
+          .all();
+
+        if (existingTasks.length > 0) {
+          const incompleteTask = existingTasks[0];
+          const taskStatus = getStatusDisplayInfo(incompleteTask.fields.Status);
+
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `INCOMPLETE_TASK_EXISTS:${incompleteTask.fields.TaskID}:${incompleteTask.fields.Status}:${taskStatus.label}`,
+          });
+        }
+
+        const serviceAccountKey = {
+          type: "service_account",
+          project_id: process.env.GOOGLE_PROJECT_ID,
+          private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+          private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+          client_email: process.env.GOOGLE_CLIENT_EMAIL,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          auth_uri: "https://accounts.google.com/o/oauth2/auth",
+          token_uri: "https://oauth2.googleapis.com/token",
+          auth_provider_x509_cert_url:
+            "https://www.googleapis.com/oauth2/v1/certs",
+          client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT_URL,
+          universe_domain: "googleapis.com",
+        };
+
+        const driveService = new GoogleDriveService(serviceAccountKey);
+        const BASE_FOLDER_ID = process.env.GOOGLE_DRIVE_BASE_FOLDER_ID!;
+
+        console.log("Creating Google Drive folders for task:", taskId);
+        const folderResult = await driveService.createTaskFolder(
+          taskId,
+          BASE_FOLDER_ID
+        );
+
+        // await driveService.setFolderPermissions(
+        //   folderResult.taskFolderId,
+        //   userEmail
+        // );
+
+        return {
+          taskId,
+          ...folderResult,
+        };
+      } catch (error) {
+        console.error("Error creating folders:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create task folders",
+        });
+      }
+    }),
   // Original create task mutation
   create: protectedProcedure
     .input(CreateTaskSchema)
@@ -168,79 +242,15 @@ export const tasksRouter = router({
           });
         }
 
-        const taskId = generateTaskId();
+        const taskId = input.taskId as string;
         console.log("Generated TaskID:", taskId);
 
-        const serviceAccountKey = {
-          type: "service_account",
-          project_id: process.env.GOOGLE_PROJECT_ID,
-          private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-          private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-          client_email: process.env.GOOGLE_CLIENT_EMAIL,
-          client_id: process.env.GOOGLE_CLIENT_ID,
-          auth_uri: "https://accounts.google.com/o/oauth2/auth",
-          token_uri: "https://oauth2.googleapis.com/token",
-          auth_provider_x509_cert_url:
-            "https://www.googleapis.com/oauth2/v1/certs",
-          client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT_URL,
-          universe_domain: "googleapis.com",
-        };
-
-        const driveService = new GoogleDriveService(serviceAccountKey);
-        const BASE_FOLDER_ID = process.env.GOOGLE_DRIVE_BASE_FOLDER_ID!;
-
-        console.log("Creating google drive folders...");
-        const folderResult = await driveService.createTaskFolder(
-          taskId,
-          BASE_FOLDER_ID
-        );
-
-        console.log("Uploading request files...");
-        for (const file of input.requestFiles) {
-          const fileBuffer = base64ToBuffer(file.data);
-          await driveService.uploadFile(
-            fileBuffer,
-            file.name,
-            file.type,
-            folderResult.requestFolderId
-          );
-        }
-
-        console.log("Uploading response_gemini files...");
-        for (const file of input.responseGeminiFiles) {
-          const fileBuffer = base64ToBuffer(file.data);
-          await driveService.uploadFile(
-            fileBuffer,
-            file.name,
-            file.type,
-            folderResult.responseGeminiFolderId
-          );
-        }
-
-        console.log("Uploading response_gpt files...");
-        for (const file of input.responseGptFiles) {
-          const fileBuffer = base64ToBuffer(file.data);
-          await driveService.uploadFile(
-            fileBuffer,
-            file.name,
-            file.type,
-            folderResult.responseGptFolderId
-          );
-        }
-
-        await driveService.setFolderPermissions(
-          folderResult.taskFolderId,
-          userEmail
-        );
-
-        console.log("Google Drive setup completed successfully");
-
         const taskData: ServerTaskInput = {
-          TaskID: taskId,
+          taskId: taskId,
           Prompt: input.Prompt,
           ProfessionalSector: input.ProfessionalSector,
           TrainerEmail: userEmail,
-          Sources: folderResult.taskFolderUrl,
+          Sources: `https://drive.google.com/drive/folders/${input.taskFolderId}`,
           OpenSourceConfirmed: input.OpenSourceConfirmed,
           LicenseNotes: input.LicenseNotes || "",
           GPTResponse: input.GPTResponse,
@@ -268,7 +278,7 @@ export const tasksRouter = router({
           return {
             id: createdTask.id,
             taskId: taskId,
-            folderUrl: folderResult.taskFolderUrl,
+            folderUrl: `https://drive.google.com/drive/folders/${input.taskFolderId}`,
             requestFileCount: input.requestFiles.length,
             responseGeminiFileCount: input.responseGeminiFiles.length,
             responseGptFileCount: input.responseGptFiles.length,
@@ -307,6 +317,79 @@ export const tasksRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "An unexpected error occurred. Please try again.",
+        });
+      }
+    }),
+
+  validateUploads: protectedProcedure
+    .input(
+      z.object({
+        files: z.array(FileReferenceSchema),
+      })
+    )
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    .query(async ({ input, ctx }) => {
+      try {
+        const serviceAccountKey = {
+          type: "service_account",
+          project_id: process.env.GOOGLE_PROJECT_ID,
+          private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+          private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+          client_email: process.env.GOOGLE_CLIENT_EMAIL,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          auth_uri: "https://accounts.google.com/o/oauth2/auth",
+          token_uri: "https://oauth2.googleapis.com/token",
+          auth_provider_x509_cert_url:
+            "https://www.googleapis.com/oauth2/v1/certs",
+          client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT_URL,
+          universe_domain: "googleapis.com",
+        };
+
+        const auth = new google.auth.GoogleAuth({
+          credentials: serviceAccountKey,
+          scopes: ["https://www.googleapis.com/auth/drive"],
+        });
+
+        const drive = google.drive({ version: "v3", auth });
+
+        const validationResults = await Promise.all(
+          input.files.map(async (file) => {
+            if (!file.driveFileId) {
+              return {
+                fileId: file.id,
+                exists: false,
+                error: "No Drive file ID",
+              };
+            }
+
+            try {
+              const response = await drive.files.get({
+                fileId: file.driveFileId,
+                fields: "id,name,size",
+              });
+
+              return {
+                fileId: file.id,
+                exists: true,
+                driveData: response.data,
+              };
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            } catch (error) {
+              return {
+                fileId: file.id,
+                exists: false,
+                error: "File not found in Drive",
+              };
+            }
+          })
+        );
+
+        return validationResults;
+      } catch (error) {
+        console.error("Error validating uploads:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to validate uploads",
         });
       }
     }),

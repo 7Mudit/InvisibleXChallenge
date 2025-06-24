@@ -27,29 +27,25 @@ export const TaskStatus = z.enum([
 
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // keeping this 10MB for now
-const ACCEPTED_FILE_TYPES = [
-  "application/pdf",
-  "text/plain",
-  "text/csv",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/json",
-  "image/png",
-  "image/jpeg",
-  "application/zip",
-];
+// const MAX_FILE_SIZE = 10 * 1024 * 1024; // keeping this 10MB for now
+// const ACCEPTED_FILE_TYPES = [
+//   "application/pdf",
+//   "text/plain",
+//   "text/csv",
+//   "application/vnd.ms-excel",
+//   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+//   "application/json",
+//   "image/png",
+//   "image/jpeg",
+//   "application/zip",
+// ];
 
-export const FileSchema = z.object({
+export const FileReferenceSchema = z.object({
+  id: z.string(),
   name: z.string(),
-  size: z.number().max(MAX_FILE_SIZE, "File must be less than 10MB"),
-  type: z
-    .string()
-    .refine(
-      (type) => ACCEPTED_FILE_TYPES.includes(type),
-      "File type not supported"
-    ),
-  data: z.string(),
+  size: z.number(),
+  type: z.string(),
+  driveFileId: z.string().optional(),
 });
 
 // Rubric item interface with question and tag
@@ -63,6 +59,7 @@ export type RubricFormat = Record<string, RubricItem>;
 
 // Original task creation schema
 export const CreateTaskSchema = z.object({
+  taskId: z.string().optional(),
   Prompt: z
     .string()
     .min(50, "Task description must be at least 50 characters")
@@ -97,23 +94,27 @@ export const CreateTaskSchema = z.object({
       (val) => val.trim().length >= 50,
       "Gemini response cannot be just whitespace"
     ),
-
+  taskFolderId: z.string().optional(),
   requestFiles: z
-    .array(FileSchema)
+    .array(FileReferenceSchema)
     .min(1, "At least one request file is required")
     .max(10, "Maximum 10 files allowed"),
-  responseGeminiFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
-  responseGptFiles: z.array(FileSchema).max(10, "Maximum 10 files allowed"),
+  responseGeminiFiles: z
+    .array(FileReferenceSchema)
+    .max(10, "Maximum 10 files allowed"),
+  responseGptFiles: z
+    .array(FileReferenceSchema)
+    .max(10, "Maximum 10 files allowed"),
 });
 
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
+export type FileReference = z.infer<typeof FileReferenceSchema>;
 
 export const ServerTaskSchema = CreateTaskSchema.omit({
   requestFiles: true,
   responseGeminiFiles: true,
   responseGptFiles: true,
 }).extend({
-  TaskID: z.string().uuid(),
   Sources: z.string().url(),
   TrainerEmail: z
     .string()
@@ -430,7 +431,7 @@ export function toAirtableFormat(
   serverData: ServerTaskInput
 ): Omit<AirtableTaskRecord, keyof FieldSet> {
   return {
-    TaskID: serverData.TaskID,
+    TaskID: serverData.taskId,
     Prompt: serverData.Prompt,
     ProfessionalSector: serverData.ProfessionalSector,
     TrainerEmail: serverData.TrainerEmail,
